@@ -5,6 +5,10 @@ const statusDiv = document.getElementById('status');
 const hillBar = document.getElementById('hillBar');
 const CELL_SIZE = canvas.width / 35;
 const MOVE_DURATION = 0.2;
+const BOARD_SIZE = 35;
+const HILL_HOLD_TIME = 30;
+const TERRAIN_WATER = 2;
+const TERRAIN_FOREST = 1;
 
 let solAddress = prompt('Enter your SOLANA address:');
 if (solAddress) socket.emit('join', solAddress);
@@ -13,17 +17,29 @@ let team, gameState, offset, selectedPiece = null;
 
 socket.on('waiting', (message) => {
     statusDiv.textContent = message;
+    console.log('Waiting message received:', message);
 });
 
 socket.on('gameStart', (data) => {
+    console.log('GameStart received:', JSON.stringify(data, null, 2));
+    if (!data || !data.state) {
+        console.error('Invalid gameStart data:', data);
+        return;
+    }
     team = data.team;
     gameState = data.state;
+    if (!gameState.board || !gameState.pieces) {
+        console.error('Invalid gameState missing board or pieces:', gameState);
+        return;
+    }
     offset = Date.now() - data.state.serverTime;
     statusDiv.textContent = `Playing as Team ${team}`;
+    console.log('Game state initialized:', gameState);
     render();
 });
 
 socket.on('update', (state) => {
+    console.log('Update received:', state);
     gameState = state;
     offset = Date.now() - state.serverTime;
 });
@@ -31,6 +47,7 @@ socket.on('update', (state) => {
 socket.on('gameOver', (state) => {
     gameState = state;
     statusDiv.textContent = state.winner === team ? `You won by ${state.winReason}! 0.01 SOL sent.` : `You lost by ${state.winReason}.`;
+    console.log('Game over:', state);
     setTimeout(() => {
         solAddress = prompt('Enter your SOLANA address to play again:');
         if (solAddress) socket.emit('join', solAddress);
@@ -112,11 +129,18 @@ function drawPiece(piece, selected = false) {
 }
 
 function render() {
-    if (!gameState) return;
-    const currentTime = Date.now() - offset;
+    console.log('Render called, gameState:', gameState);
+    if (!gameState) {
+        console.error('No gameState to render');
+        ctx.fillStyle = 'red'; // Debug: turn screen red if no state
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        return;
+    }
+
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // Draw board
+    console.log('Drawing board');
     for (let x = 0; x < BOARD_SIZE; x++) {
         for (let y = 0; y < BOARD_SIZE; y++) {
             ctx.fillStyle = gameState.board[x][y] === TERRAIN_WATER ? '#00f' : gameState.board[x][y] === TERRAIN_FOREST ? '#060' : '#0a0';
@@ -125,6 +149,7 @@ function render() {
     }
 
     // Draw hill
+    console.log('Drawing hill');
     ctx.fillStyle = '#ff0';
     ctx.fillRect(gameState.hill.x * CELL_SIZE, gameState.hill.y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
     if (gameState.hillOccupant !== null) {
@@ -137,22 +162,29 @@ function render() {
     }
 
     // Draw shrines
+    console.log('Drawing shrines:', gameState.shrines);
     gameState.shrines.forEach(s => {
         ctx.fillStyle = '#ccc';
         ctx.fillRect(s[0] * CELL_SIZE, s[1] * CELL_SIZE, CELL_SIZE, CELL_SIZE);
     });
 
     // Draw pieces and legal moves
+    console.log('Drawing pieces:', gameState.pieces);
     gameState.pieces.forEach((p, i) => {
         drawPiece(p, i === selectedPiece);
         if (i === selectedPiece) {
             const legalMoves = calculateLegalMoves(p);
+            console.log('Legal moves for selected piece:', legalMoves);
             ctx.fillStyle = 'rgba(255, 255, 0, 0.5)';
             legalMoves.forEach(([mx, my]) => ctx.fillRect(mx * CELL_SIZE, my * CELL_SIZE, CELL_SIZE, CELL_SIZE));
         }
     });
 
-    if (!gameState.gameOver) requestAnimationFrame(render);
+    if (!gameState.gameOver) {
+        requestAnimationFrame(render);
+    } else {
+        console.log('Game over, stopping render loop');
+    }
 }
 
 function calculateLegalMoves(piece) {
@@ -220,8 +252,10 @@ canvas.addEventListener('click', (e) => {
     const pieceIdx = gameState.pieces.findIndex(p => p.x === x && p.y === y && p.team === team && p.cooldown === 0);
     if (pieceIdx !== -1 && selectedPiece === null) {
         selectedPiece = pieceIdx;
+        console.log('Piece selected:', gameState.pieces[pieceIdx]);
     } else if (selectedPiece !== null) {
         socket.emit('move', { pieceIdx: selectedPiece, targetX: x, targetY: y });
+        console.log('Move sent:', { pieceIdx: selectedPiece, targetX: x, targetY: y });
         selectedPiece = null;
     }
 });
