@@ -2,7 +2,7 @@ const socket = io();
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const statusDiv = document.getElementById('status');
-const CELL_SIZE = canvas.width / 35; // 700 / 35 = 20
+const CELL_SIZE = canvas.width / 35;
 const MOVE_DURATION = 0.2;
 
 let solAddress = prompt('Enter your SOLANA address:');
@@ -12,9 +12,11 @@ let team, gameState, offset, selectedPiece = null;
 
 socket.on('waiting', (message) => {
     statusDiv.textContent = message;
+    console.log('Waiting message received:', message);
 });
 
 socket.on('gameStart', (data) => {
+    console.log('Game started with data:', data);
     team = data.team;
     gameState = data.state;
     offset = Date.now() - data.state.serverTime;
@@ -25,12 +27,14 @@ socket.on('gameStart', (data) => {
 socket.on('update', (state) => {
     gameState = state;
     offset = Date.now() - state.serverTime;
+    console.log('Game state updated:', state);
 });
 
 socket.on('gameOver', (state) => {
     gameState = state;
     const message = state.winner === team ? `You won by ${state.winReason}! 0.01 SOL sent to your address.` : `You lost by ${state.winReason}.`;
     statusDiv.textContent = message;
+    console.log('Game over:', message);
     setTimeout(() => {
         solAddress = prompt('Enter your SOLANA address to play again:');
         if (solAddress) socket.emit('join', solAddress);
@@ -38,18 +42,20 @@ socket.on('gameOver', (state) => {
 });
 
 function render() {
+    if (!gameState) {
+        console.error('No gameState to render');
+        return;
+    }
     const currentTime = Date.now() - offset;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw terrain
-    for (let x = 0; x < BOARD_SIZE; x++) {
-        for (let y = 0; y < BOARD_SIZE; y++) {
+    for (let x = 0; x < 35; x++) {
+        for (let y = 0; y < 35; y++) {
             ctx.fillStyle = gameState.board[x][y] === 'water' ? '#00f' : gameState.board[x][y] === 'forest' ? '#060' : '#0a0';
             ctx.fillRect(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
         }
     }
 
-    // Draw hill
     ctx.fillStyle = '#ff0';
     ctx.fillRect(gameState.hill.x * CELL_SIZE, gameState.hill.y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
     if (gameState.hillOccupant !== null) {
@@ -60,13 +66,11 @@ function render() {
         ctx.fillText(gameState.hillTimer.toFixed(1), gameState.hill.x * CELL_SIZE + 2, gameState.hill.y * CELL_SIZE + 12);
     }
 
-    // Draw shrines
     gameState.shrines.forEach(s => {
         ctx.fillStyle = '#ccc';
         ctx.fillRect(s.x * CELL_SIZE, s.y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
     });
 
-    // Draw pieces
     gameState.pieces.forEach((p, i) => {
         let x = p.x, y = p.y;
         if (p.moveStartTime && p.targetX !== null && p.targetY !== null) {
@@ -107,8 +111,10 @@ canvas.addEventListener('click', (e) => {
     const pieceIdx = gameState.pieces.findIndex(p => p.x === x && p.y === y && p.team === team && !p.cooldownEndTime);
     if (pieceIdx !== -1 && selectedPiece === null) {
         selectedPiece = pieceIdx;
+        console.log('Piece selected:', gameState.pieces[pieceIdx]);
     } else if (selectedPiece !== null) {
         socket.emit('move', { pieceIdx: selectedPiece, targetX: x, targetY: y });
+        console.log('Move sent:', { pieceIdx: selectedPiece, targetX: x, targetY: y });
         selectedPiece = null;
     }
 });
