@@ -5,16 +5,16 @@ const io = require('socket.io')(server);
 const { Connection, Keypair, Transaction, SystemProgram, sendAndConfirmTransaction, PublicKey } = require('@solana/web3.js');
 
 const BOARD_SIZE = 35;
-const HILL_HOLD_TIME = 30; // Seconds to hold the hill
-const SOLANA_PRIZE = 0.01; // SOL prize for the winner
-const MOVE_DURATION = 0.2; // Seconds for piece movement animation
-const SHRINE_DELETE_CHANCE = 0.20; // 20% chance to delete piece
+const HILL_HOLD_TIME = 30;
+const SOLANA_PRIZE = 0.01;
+const MOVE_DURATION = 0.2;
+const SHRINE_DELETE_CHANCE = 0.20;
 
 app.use(express.static('public'));
 
 const playerPool = [];
 const games = [];
-const connection = new Connection('https://api.devnet.solana.com'); // Use devnet for testing
+const connection = new Connection('https://api.devnet.solana.com');
 const serverKeypair = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(process.env.SOLANA_PRIVATE_KEY || '[]')));
 
 io.on('connection', (socket) => {
@@ -22,11 +22,13 @@ io.on('connection', (socket) => {
 
     socket.on('join', (solAddress) => {
         if (!solAddress) return socket.disconnect();
+        console.log(`Player ${socket.id} joined with SOL address: ${solAddress}`);
         playerPool.push({ socket, solAddress });
         socket.emit('waiting', 'Waiting for an opponent...');
         if (playerPool.length >= 2) {
             const player1 = playerPool.shift();
             const player2 = playerPool.shift();
+            console.log('Starting game between', player1.socket.id, 'and', player2.socket.id);
             const game = new Game(player1, player2);
             games.push(game);
             game.start();
@@ -39,6 +41,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
+        console.log('Player disconnected:', socket.id);
         const gameIdx = games.findIndex(g => g.player1.socket.id === socket.id || g.player2.socket.id === socket.id);
         if (gameIdx !== -1) {
             const game = games[gameIdx];
@@ -66,10 +69,9 @@ class Game {
         const totalCells = BOARD_SIZE * BOARD_SIZE;
         let waterCount = 0, forestCount = 0;
 
-        // Ensure spawn areas and hill are grass
-        for (let x = 0; x < 5; x++) for (let y = 0; y < 5; y++) board[x][y] = 'grass'; // Team 0
-        for (let x = BOARD_SIZE - 5; x < BOARD_SIZE; x++) for (let y = BOARD_SIZE - 5; y < BOARD_SIZE; y++) board[x][y] = 'grass'; // Team 1
-        board[17][17] = 'grass'; // Hill
+        for (let x = 0; x < 5; x++) for (let y = 0; y < 5; y++) board[x][y] = 'grass';
+        for (let x = BOARD_SIZE - 5; x < BOARD_SIZE; x++) for (let y = BOARD_SIZE - 5; y < BOARD_SIZE; y++) board[x][y] = 'grass';
+        board[17][17] = 'grass';
 
         while (waterCount < totalCells * 0.1) {
             const x = Math.floor(Math.random() * BOARD_SIZE);
@@ -91,30 +93,28 @@ class Game {
     }
 
     placePieces() {
-        const pieces = [];
-        // Team 0 (top-left)
-        pieces.push({ team: 0, type: 'king', x: 2, y: 2, cooldownEndTime: null, targetX: null, targetY: null, moveStartTime: null });
-        pieces.push({ team: 0, type: 'knight', x: 3, y: 3, cooldownEndTime: null, targetX: null, targetY: null, moveStartTime: null });
-        pieces.push({ team: 0, type: 'pawn', x: 2, y: 3, cooldownEndTime: null, targetX: null, targetY: null, moveStartTime: null });
-        // Team 1 (bottom-right)
-        pieces.push({ team: 1, type: 'king', x: 32, y: 32, cooldownEndTime: null, targetX: null, targetY: null, moveStartTime: null });
-        pieces.push({ team: 1, type: 'knight', x: 31, y: 31, cooldownEndTime: null, targetX: null, targetY: null, moveStartTime: null });
-        pieces.push({ team: 1, type: 'pawn', x: 32, y: 31, cooldownEndTime: null, targetX: null, targetY: null, moveStartTime: null });
+        const pieces = [
+            { team: 0, type: 'king', x: 2, y: 2, cooldownEndTime: null, targetX: null, targetY: null, moveStartTime: null },
+            { team: 0, type: 'knight', x: 3, y: 3, cooldownEndTime: null, targetX: null, targetY: null, moveStartTime: null },
+            { team: 0, type: 'pawn', x: 2, y: 3, cooldownEndTime: null, targetX: null, targetY: null, moveStartTime: null },
+            { team: 1, type: 'king', x: 32, y: 32, cooldownEndTime: null, targetX: null, targetY: null, moveStartTime: null },
+            { team: 1, type: 'knight', x: 31, y: 31, cooldownEndTime: null, targetX: null, targetY: null, moveStartTime: null },
+            { team: 1, type: 'pawn', x: 32, y: 31, cooldownEndTime: null, targetX: null, targetY: null, moveStartTime: null }
+        ];
+        console.log('Initial pieces placed:', pieces);
         return pieces;
     }
 
     placeShrines() {
-        return [
-            { x: 10, y: 10 },
-            { x: 24, y: 24 }
-        ];
+        return [{ x: 10, y: 10 }, { x: 24, y: 24 }];
     }
 
     start() {
         const state = this.getState();
+        console.log('Game started, sending state:', state);
         this.player1.socket.emit('gameStart', { team: 0, state });
         this.player2.socket.emit('gameStart', { team: 1, state });
-        this.interval = setInterval(() => this.update(), 1000 / 60); // 60 FPS
+        this.interval = setInterval(() => this.update(), 1000 / 60);
     }
 
     update() {
@@ -149,13 +149,11 @@ class Game {
         const piece = this.pieces[pieceIdx];
         if (!piece || piece.team !== team || piece.cooldownEndTime) return;
 
-        // Movement validation (simplified for example, expand as needed)
         const dx = Math.abs(targetX - piece.x);
         const dy = Math.abs(targetY - piece.y);
-        const range = piece.type === 'knight' ? 2 : piece.type === 'king' ? 1 : 1; // Example ranges
+        const range = piece.type === 'knight' ? 2 : 1;
         if (targetX < 0 || targetX >= BOARD_SIZE || targetY < 0 || targetY >= BOARD_SIZE || this.board[targetX][targetY] === 'water' || dx > range || dy > range) return;
 
-        // Check capture
         const targetPieceIdx = this.pieces.findIndex(p => p.x === targetX && p.y === targetY);
         if (targetPieceIdx !== -1) {
             const targetPiece = this.pieces[targetPieceIdx];
@@ -168,14 +166,13 @@ class Game {
             } else return;
         }
 
-        // Shrine effects
         const shrineIdx = this.shrines.findIndex(s => s.x === targetX && s.y === targetY);
         if (shrineIdx !== -1) {
-            this.shrines.splice(shrineIdx, 1); // Remove shrine after use
+            this.shrines.splice(shrineIdx, 1);
             if (Math.random() < SHRINE_DELETE_CHANCE) {
-                this.pieces.splice(pieceIdx, 1); // 20% chance to delete
+                this.pieces.splice(pieceIdx, 1);
             } else {
-                this.pieces.push({ team, type: piece.type, x: targetX + 1, y: targetY, cooldownEndTime: null, targetX: null, targetY: null, moveStartTime: null }); // 80% chance to duplicate
+                this.pieces.push({ team, type: piece.type, x: targetX + 1, y: targetY, cooldownEndTime: null, targetX: null, targetY: null, moveStartTime: null });
             }
         } else {
             piece.targetX = targetX;
@@ -183,7 +180,7 @@ class Game {
             piece.moveStartTime = Date.now();
             piece.x = targetX;
             piece.y = targetY;
-            piece.cooldownEndTime = Date.now() + (this.board[targetX][targetY] === 'forest' ? 3000 : 1500); // Longer cooldown in forest
+            piece.cooldownEndTime = Date.now() + (this.board[targetX][targetY] === 'forest' ? 3000 : 1500);
         }
 
         this.update();
@@ -197,14 +194,13 @@ class Game {
         state.gameOver = true;
         state.winner = winnerTeam;
         state.winReason = reason;
+        console.log(`Game ended: Team ${winnerTeam} won by ${reason}`);
         winner.socket.emit('gameOver', state);
         loser.socket.emit('gameOver', state);
 
         sendSol(winner.solAddress, SOLANA_PRIZE).then(txId => {
             console.log(`Prize sent to ${winner.solAddress}: ${txId}`);
         }).catch(err => console.error('SOLANA transaction failed:', err));
-
-        games.splice(games.indexOf(this), 1);
     }
 
     getState() {
