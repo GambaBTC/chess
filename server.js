@@ -9,6 +9,7 @@ const HILL_HOLD_TIME = 30;
 const SOLANA_PRIZE = 0.01;
 const MOVE_DURATION = 0.2;
 const SHRINE_DELETE_CHANCE = 0.20;
+const TERRAIN_GRASS = 0, TERRAIN_FOREST = 1, TERRAIN_WATER = 2;
 
 app.use(express.static('public'));
 
@@ -19,7 +20,6 @@ const serverKeypair = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(process.e
 
 io.on('connection', (socket) => {
     console.log('Player connected:', socket.id);
-
     socket.on('join', (solAddress) => {
         if (!solAddress) return socket.disconnect();
         console.log(`Player ${socket.id} joined with SOL address: ${solAddress}`);
@@ -51,6 +51,89 @@ io.on('connection', (socket) => {
     });
 });
 
+class Piece {
+    constructor(team, type, x, y) {
+        this.team = team;
+        this.type = type;
+        this.x = x;
+        this.y = y;
+        this.old_x = x;
+        this.old_y = y;
+        this.cooldown = 0;
+        this.move_start_time = null;
+        this.move_duration = MOVE_DURATION;
+    }
+
+    getLegalMoves(grid, pieces) {
+        const moves = {
+            "pawn": this.getPawnMoves,
+            "knight": this.getKnightMoves,
+            "bishop": () => this.getSlidingMoves(grid, pieces, [(-1, -1), (-1, 1), (1, -1), (1, 1)], 5),
+            "rook": () => this.getSlidingMoves(grid, pieces, [(-1, 0), (1, 0), (0, -1), (0, 1)], 5),
+            "queen": () => this.getSlidingMoves(grid, pieces, [(-1, -1), (-1, 1), (1, -1), (1, 1), (-1, 0), (1, 0), (0, -1), (0, 1)], 7),
+            "king": this.getKingMoves
+        };
+        return moves[this.type](grid, pieces);
+    }
+
+    getPawnMoves(grid, pieces) {
+        const moves = [], captures = [];
+        for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+            const nx = this.x + dx, ny = this.y + dy;
+            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER && !(pieces[nx] && pieces[nx][ny])) {
+                moves.push([nx, ny]);
+            }
+        }
+        for (const [dx, dy] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) {
+            const nx = this.x + dx, ny = this.y + dy;
+            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && pieces[nx] && pieces[nx][ny] && pieces[nx][ny].team !== this.team) {
+                captures.push([nx, ny]);
+            }
+        }
+        return moves.concat(captures);
+    }
+
+    getKnightMoves(grid, pieces) {
+        const moves = [];
+        for (const [dx, dy] of [[-2, -1], [-2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2], [2, -1], [2, 1]]) {
+            const nx = this.x + dx, ny = this.y + dy;
+            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER &&
+                (!pieces[nx] || !pieces[nx][ny] || pieces[nx][ny].team !== this.team)) {
+                moves.push([nx, ny]);
+            }
+        }
+        return moves;
+    }
+
+    getSlidingMoves(grid, pieces, directions, maxRange) {
+        const moves = [];
+        for (const [dx, dy] of directions) {
+            for (let i = 1; i <= maxRange; i++) {
+                const nx = this.x + dx * i, ny = this.y + dy * i;
+                if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE || grid[nx][ny] === TERRAIN_WATER) break;
+                if (pieces[nx] && pieces[nx][ny]) {
+                    if (pieces[nx][ny].team !== this.team) moves.push([nx, ny]);
+                    break;
+                }
+                moves.push([nx, ny]);
+            }
+        }
+        return moves;
+    }
+
+    getKingMoves(grid, pieces) {
+        const moves = [];
+        for (const [dx, dy] of [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]]) {
+            const nx = this.x + dx, ny = this.y + dy;
+            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER &&
+                (!pieces[nx] || !pieces[nx][ny] || pieces[nx][ny].team !== this.team)) {
+                moves.push([nx, ny]);
+            }
+        }
+        return moves;
+    }
+}
+
 class Game {
     constructor(player1, player2) {
         this.player1 = player1;
@@ -60,53 +143,41 @@ class Game {
         this.hill = { x: 17, y: 17 };
         this.hillOccupant = null;
         this.hillStartTime = null;
-        this.shrines = this.placeShrines();
+        this.shrines = [[10, 10], [24, 24]];
         this.interval = null;
     }
 
     generateBoard() {
-        const board = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill('grass'));
-        const totalCells = BOARD_SIZE * BOARD_SIZE;
-        let waterCount = 0, forestCount = 0;
-
-        for (let x = 0; x < 5; x++) for (let y = 0; y < 5; y++) board[x][y] = 'grass';
-        for (let x = BOARD_SIZE - 5; x < BOARD_SIZE; x++) for (let y = BOARD_SIZE - 5; y < BOARD_SIZE; y++) board[x][y] = 'grass';
-        board[17][17] = 'grass';
-
+        const board = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(TERRAIN_GRASS));
+        let waterCount = 0, forestCount = 0, totalCells = BOARD_SIZE * BOARD_SIZE;
         while (waterCount < totalCells * 0.1) {
-            const x = Math.floor(Math.random() * BOARD_SIZE);
-            const y = Math.floor(Math.random() * BOARD_SIZE);
-            if (board[x][y] === 'grass' && !(x < 5 && y < 5) && !(x >= BOARD_SIZE - 5 && y >= BOARD_SIZE - 5) && !(x === 17 && y === 17)) {
-                board[x][y] = 'water';
+            const x = Math.floor(Math.random() * BOARD_SIZE), y = Math.floor(Math.random() * BOARD_SIZE);
+            if (board[x][y] === TERRAIN_GRASS && (x < 5 || x >= BOARD_SIZE - 5)) {
+                board[x][y] = TERRAIN_WATER;
                 waterCount++;
             }
         }
         while (forestCount < totalCells * 0.1) {
-            const x = Math.floor(Math.random() * BOARD_SIZE);
-            const y = Math.floor(Math.random() * BOARD_SIZE);
-            if (board[x][y] === 'grass' && !(x < 5 && y < 5) && !(x >= BOARD_SIZE - 5 && y >= BOARD_SIZE - 5) && !(x === 17 && y === 17)) {
-                board[x][y] = 'forest';
+            const x = Math.floor(Math.random() * BOARD_SIZE), y = Math.floor(Math.random() * BOARD_SIZE);
+            if (board[x][y] === TERRAIN_GRASS) {
+                board[x][y] = TERRAIN_FOREST;
                 forestCount++;
             }
         }
+        board[17][17] = TERRAIN_GRASS; // Ensure hill is grass
         return board;
     }
 
     placePieces() {
-        const pieces = [
-            { team: 0, type: 'king', x: 2, y: 2, cooldownEndTime: null, targetX: null, targetY: null, moveStartTime: null },
-            { team: 0, type: 'knight', x: 3, y: 3, cooldownEndTime: null, targetX: null, targetY: null, moveStartTime: null },
-            { team: 0, type: 'pawn', x: 2, y: 3, cooldownEndTime: null, targetX: null, targetY: null, moveStartTime: null },
-            { team: 1, type: 'king', x: 32, y: 32, cooldownEndTime: null, targetX: null, targetY: null, moveStartTime: null },
-            { team: 1, type: 'knight', x: 31, y: 31, cooldownEndTime: null, targetX: null, targetY: null, moveStartTime: null },
-            { team: 1, type: 'pawn', x: 32, y: 31, cooldownEndTime: null, targetX: null, targetY: null, moveStartTime: null }
-        ];
-        console.log('Initial pieces placed:', pieces);
+        const pieces = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE));
+        const placeTeam = (team, xStart, pawnRow, backRow) => {
+            for (let i = 0; i < 8; i++) pieces[xStart + i][pawnRow] = new Piece(team, "pawn", xStart + i, pawnRow);
+            const backPieces = ["rook", "knight", "bishop", "queen", "king", "bishop", "knight", "rook"];
+            for (let i = 0; i < 8; i++) pieces[xStart + i][backRow] = new Piece(team, backPieces[i], xStart + i, backRow);
+        };
+        placeTeam(0, 13, 33, 34); // Team 0 bottom
+        placeTeam(1, 13, 0, 1);   // Team 1 top
         return pieces;
-    }
-
-    placeShrines() {
-        return [{ x: 10, y: 10 }, { x: 24, y: 24 }];
     }
 
     start() {
@@ -119,11 +190,15 @@ class Game {
 
     update() {
         const currentTime = Date.now();
-        this.pieces.forEach(p => {
-            if (p.cooldownEndTime && currentTime >= p.cooldownEndTime) p.cooldownEndTime = null;
-        });
+        for (let x = 0; x < BOARD_SIZE; x++) {
+            for (let y = 0; y < BOARD_SIZE; y++) {
+                if (this.pieces[x] && this.pieces[x][y] && this.pieces[x][y].cooldown > 0) {
+                    this.pieces[x][y].cooldown = Math.max(0, this.pieces[x][y].cooldown - 1000 / 60);
+                }
+            }
+        }
 
-        const hillPiece = this.pieces.find(p => p.x === this.hill.x && p.y === this.hill.y);
+        const hillPiece = this.pieces[this.hill.x] && this.pieces[this.hill.x][this.hill.y];
         if (hillPiece) {
             if (this.hillOccupant === hillPiece.team) {
                 if (currentTime - this.hillStartTime >= HILL_HOLD_TIME * 1000) {
@@ -146,19 +221,17 @@ class Game {
 
     handleMove(socketId, { pieceIdx, targetX, targetY }) {
         const team = this.player1.socket.id === socketId ? 0 : 1;
-        const piece = this.pieces[pieceIdx];
-        if (!piece || piece.team !== team || piece.cooldownEndTime) return;
+        const piece = this.pieces.flat().filter(p => p)[pieceIdx];
+        if (!piece || piece.team !== team || piece.cooldown > 0) return;
 
-        const dx = Math.abs(targetX - piece.x);
-        const dy = Math.abs(targetY - piece.y);
-        const range = piece.type === 'knight' ? 2 : 1;
-        if (targetX < 0 || targetX >= BOARD_SIZE || targetY < 0 || targetY >= BOARD_SIZE || this.board[targetX][targetY] === 'water' || dx > range || dy > range) return;
+        const legalMoves = piece.getLegalMoves(this.board, this.pieces);
+        const target = [targetX, targetY];
+        if (!legalMoves.some(m => m[0] === targetX && m[1] === targetY)) return;
 
-        const targetPieceIdx = this.pieces.findIndex(p => p.x === targetX && p.y === targetY);
-        if (targetPieceIdx !== -1) {
-            const targetPiece = this.pieces[targetPieceIdx];
+        if (this.pieces[targetX] && this.pieces[targetX][targetY]) {
+            const targetPiece = this.pieces[targetX][targetY];
             if (targetPiece.team !== piece.team) {
-                this.pieces.splice(targetPieceIdx, 1);
+                this.pieces[targetX][targetY] = null;
                 if (targetPiece.type === 'king') {
                     this.endGame(team, "king_capture");
                     return;
@@ -166,21 +239,22 @@ class Game {
             } else return;
         }
 
-        const shrineIdx = this.shrines.findIndex(s => s.x === targetX && s.y === targetY);
+        const shrineIdx = this.shrines.findIndex(s => s[0] === targetX && s[1] === targetY);
+        this.pieces[piece.x][piece.y] = null;
+        piece.old_x = piece.x; piece.old_y = piece.y;
+        piece.x = targetX; piece.y = targetY;
+        piece.move_start_time = Date.now();
+        piece.cooldown = (this.board[targetX][targetY] === TERRAIN_FOREST ? 2 : 1) * 1500;
+        this.pieces[targetX][targetY] = piece;
+
         if (shrineIdx !== -1) {
             this.shrines.splice(shrineIdx, 1);
             if (Math.random() < SHRINE_DELETE_CHANCE) {
-                this.pieces.splice(pieceIdx, 1);
+                this.pieces[targetX][targetY] = null;
             } else {
-                this.pieces.push({ team, type: piece.type, x: targetX + 1, y: targetY, cooldownEndTime: null, targetX: null, targetY: null, moveStartTime: null });
+                const newPiece = new Piece(team, piece.type, targetX + 1, targetY);
+                if (newPiece.x < BOARD_SIZE && !this.pieces[newPiece.x][newPiece.y]) this.pieces[newPiece.x][newPiece.y] = newPiece;
             }
-        } else {
-            piece.targetX = targetX;
-            piece.targetY = targetY;
-            piece.moveStartTime = Date.now();
-            piece.x = targetX;
-            piece.y = targetY;
-            piece.cooldownEndTime = Date.now() + (this.board[targetX][targetY] === 'forest' ? 3000 : 1500);
         }
 
         this.update();
@@ -201,13 +275,14 @@ class Game {
         sendSol(winner.solAddress, SOLANA_PRIZE).then(txId => {
             console.log(`Prize sent to ${winner.solAddress}: ${txId}`);
         }).catch(err => console.error('SOLANA transaction failed:', err));
+        games.splice(games.indexOf(this), 1);
     }
 
     getState() {
         return {
             serverTime: Date.now(),
             board: this.board,
-            pieces: this.pieces.map(p => ({ ...p })),
+            pieces: this.pieces.flat().filter(p => p).map(p => ({ team: p.team, type: p.type, x: p.x, y: p.y, old_x: p.old_x, old_y: p.old_y, cooldown: p.cooldown, move_start_time: p.move_start_time })),
             hill: this.hill,
             hillOccupant: this.hillOccupant,
             hillTimer: this.hillStartTime ? (Date.now() - this.hillStartTime) / 1000 : 0,
