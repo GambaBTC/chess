@@ -10,8 +10,19 @@ body {
 canvas {
     border: 1px solid #fff;
 }
-#status {
+#status, #hillBar {
     color: white;
     margin-top: 10px;
     font-family: Arial, sans-serif;
+}
+#hillBar {
+    width: 200px;
+    height: 20px;
+    background: #323232;
+    position: relative;
+}
+#hillProgress {
+    height: 100%;
+    background: #ff0;
+    transition: width 0.1s linear;
 }
