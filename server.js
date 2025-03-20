@@ -57,6 +57,12 @@ io.on('connection', (socket) => {
             games.splice(gameIdx, 1);
         }
     });
+
+    // Add balance request handler
+    socket.on('getBalance', async () => {
+        const balance = await connection.getBalance(serverKeypair.publicKey);
+        socket.emit('serverBalance', balance / LAMPORTS_PER_SOL);
+    });
 });
 
 class Piece {
@@ -86,10 +92,17 @@ class Piece {
 
     getPawnMoves(grid, pieces) {
         const moves = [];
-        const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]]; // Omnidirectional
+        const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]]; // Omnidirectional movement
+        const captureDirections = [[-1, -1], [-1, 1], [1, -1], [1, 1]]; // Diagonal captures
         for (const [dx, dy] of directions) {
             const nx = this.x + dx, ny = this.y + dy;
             if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER && !pieces[nx]?.[ny]) {
+                moves.push([nx, ny]);
+            }
+        }
+        for (const [dx, dy] of captureDirections) {
+            const nx = this.x + dx, ny = this.y + dy;
+            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && pieces[nx]?.[ny]?.team !== this.team) {
                 moves.push([nx, ny]);
             }
         }
@@ -158,9 +171,14 @@ class Game {
         const waterCells = Math.floor(totalCells * 0.1);
         const forestCells = Math.floor(totalCells * 0.1);
 
-        for (let x = 13; x <= 20; x++) {
-            board[x][0] = TERRAIN_GRASS; board[x][1] = TERRAIN_GRASS; // Team 1
-            board[x][33] = TERRAIN_GRASS; board[x][34] = TERRAIN_GRASS; // Team 0
+        // Ensure spawn areas (13-20, 0-1 and 13-20, 33-34) and 1 square around are grass
+        for (let x = 12; x <= 21; x++) {
+            for (let y = -1; y <= 2; y++) {
+                if (x >= 0 && x < BOARD_SIZE && y >= 0 && y < BOARD_SIZE) board[x][y] = TERRAIN_GRASS;
+            }
+            for (let y = 32; y <= 35; y++) {
+                if (x >= 0 && x < BOARD_SIZE && y >= 0 && y < BOARD_SIZE) board[x][y] = TERRAIN_GRASS;
+            }
         }
 
         let placedWater = 0;
@@ -168,7 +186,8 @@ class Game {
             const x = Math.floor(Math.random() * BOARD_SIZE);
             const y = Math.floor(Math.random() * BOARD_SIZE);
             if (board[x][y] === TERRAIN_GRASS && 
-                !(x >= 13 && x <= 20 && (y <= 1 || y >= 33)) && 
+                !(x >= 12 && x <= 21 && y <= 2) && 
+                !(x >= 12 && x <= 21 && y >= 32) && 
                 (x !== 17 || y !== 17)) {
                 board[x][y] = TERRAIN_WATER;
                 placedWater++;
@@ -180,7 +199,8 @@ class Game {
             const x = Math.floor(Math.random() * BOARD_SIZE);
             const y = Math.floor(Math.random() * BOARD_SIZE);
             if (board[x][y] === TERRAIN_GRASS && 
-                !(x >= 13 && x <= 20 && (y <= 1 || y >= 33)) && 
+                !(x >= 12 && x <= 21 && y <= 2) && 
+                !(x >= 12 && x <= 21 && y >= 32) && 
                 (x !== 17 || y !== 17)) {
                 board[x][y] = TERRAIN_FOREST;
                 placedForest++;
@@ -216,7 +236,8 @@ class Game {
         for (let x = 0; x < BOARD_SIZE; x++) {
             for (let y = 0; y < BOARD_SIZE; y++) {
                 if (this.board[x][y] === TERRAIN_GRASS && 
-                    !(x >= 13 && x <= 20 && (y <= 1 || y >= 33)) && 
+                    !(x >= 12 && x <= 21 && y <= 2) && 
+                    !(x >= 12 && x <= 21 && y >= 32) && 
                     !(x === 17 && y === 17)) {
                     possiblePositions.push([x, y]);
                 }
