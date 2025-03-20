@@ -273,13 +273,20 @@ canvas.addEventListener('click', (e) => {
 
     if (pieceIdx !== -1) {
         // If clicking on a piece that can be selected
-        selectedPiece = pieceIdx; // Always select the piece, even if it's the same one
-        console.log('Piece selected:', gameState.pieces[pieceIdx]);
+        if (selectedPiece === pieceIdx) {
+            // Clicking the same piece again, deselect it
+            selectedPiece = null;
+            console.log('Piece deselected:', gameState.pieces[pieceIdx]);
+        } else {
+            // Selecting a new piece (or a different piece)
+            selectedPiece = pieceIdx;
+            console.log('Piece selected:', gameState.pieces[pieceIdx]);
+        }
     } else if (selectedPiece !== null) {
         // If a piece is selected and we click on a non-piece square, attempt to move
         socket.emit('move', { pieceIdx: selectedPiece, targetX: x, targetY: y });
         console.log('Move sent:', { pieceIdx: selectedPiece, targetX: x, targetY: y });
-        // Do not deselect the piece after moving, so it can be moved again immediately after cooldown
+        selectedPiece = null; // Deselect after moving
     } else {
         // Clicking on an empty square with no piece selected, do nothing
         console.log('Clicked on empty square with no piece selected');
