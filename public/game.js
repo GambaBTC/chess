@@ -153,7 +153,7 @@ function drawPiece(piece, selected = false) {
     }
     if (piece.cooldown > 0) {
         const elapsed = currentTime - (piece.move_start_time || currentTime);
-        const maxCooldown = (piece.type === 'pawn' && gameState.board[piece.x][piece.y] === TERRAIN_FOREST) ? 3000 : 1500;
+        const maxCooldown = (gameState.board[piece.x][piece.y] === TERRAIN_FOREST) ? 6000 : 3000; // Updated to match server
         const opacity = Math.max(0, piece.cooldown / maxCooldown);
         ctx.fillStyle = `rgba(255, 0, 0, ${opacity})`;
         ctx.fillRect(rectX, rectY, CELL_SIZE, CELL_SIZE);
@@ -270,13 +270,25 @@ canvas.addEventListener('click', (e) => {
     if (!gameState || gameState.gameOver) return;
     const x = Math.floor(e.offsetX / CELL_SIZE), y = Math.floor(e.offsetY / CELL_SIZE);
     const pieceIdx = gameState.pieces.findIndex(p => p.x === x && p.y === y && p.team === team && p.cooldown === 0);
-    if (pieceIdx !== -1 && selectedPiece === null) {
-        selectedPiece = pieceIdx;
-        console.log('Piece selected:', gameState.pieces[pieceIdx]);
+
+    if (pieceIdx !== -1) {
+        // If clicking on a piece that can be selected (same or different piece)
+        if (selectedPiece === null || selectedPiece !== pieceIdx) {
+            selectedPiece = pieceIdx;
+            console.log('Piece selected:', gameState.pieces[pieceIdx]);
+        } else {
+            // Clicking the same piece again, deselect it
+            selectedPiece = null;
+            console.log('Piece deselected');
+        }
     } else if (selectedPiece !== null) {
+        // If a piece is selected and we click on a non-piece square, attempt to move
         socket.emit('move', { pieceIdx: selectedPiece, targetX: x, targetY: y });
         console.log('Move sent:', { pieceIdx: selectedPiece, targetX: x, targetY: y });
         selectedPiece = null;
+    } else {
+        // Clicking on an empty square with no piece selected, do nothing
+        console.log('Clicked on empty square with no piece selected');
     }
 });
 
