@@ -19,7 +19,7 @@ const TERRAIN_FOREST = 1;
 
 // Notification sound (base64-encoded WAV file for a simple "ding" sound)
 // This is a placeholder. Replace with a 15-second sound as described below.
-const notificationSound = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
+const notificationSound = new Audio('https://github.com/GambaBTC/chess/raw/refs/heads/main/mixkit-happy-bells-notification-937.wav');
 
 let team, gameState, offset, selectedPiece = null, isSpectating = false;
 
