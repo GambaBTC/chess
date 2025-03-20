@@ -7,7 +7,7 @@ const balanceDisplay = document.getElementById('balanceDisplay');
 const CELL_SIZE = canvas.width / 35;
 const MOVE_DURATION = 0.2;
 const BOARD_SIZE = 35;
-const HILL_HOLD_TIME = 30;
+const HILL_HOLD_TIME = 45; // Increased from 30 to 45 seconds
 const TERRAIN_WATER = 2;
 const TERRAIN_FOREST = 1;
 
@@ -50,15 +50,19 @@ socket.on('gameStart', (data) => {
 socket.on('update', (state) => {
     console.log('Update received:', state);
     if (state.board) {
-        gameState = state; // Full state update
+        // Full state update
+        gameState = state;
     } else {
         // Delta update
         offset = Date.now() - state.serverTime;
-        // Update cooldowns for all pieces in the delta
+        // Update all pieces with the server's state
         state.pieces.forEach(dp => {
             const piece = gameState.pieces.find(p => p.x === dp.x && p.y === dp.y && p.team === dp.team && p.type === dp.type);
             if (piece) {
                 piece.cooldown = dp.cooldown;
+                console.log(`Updated piece at (${piece.x}, ${piece.y}) cooldown to ${piece.cooldown}`);
+            } else {
+                console.warn(`Piece not found for update:`, dp);
             }
         });
         gameState.hillOccupant = state.hillOccupant;
@@ -156,7 +160,7 @@ function drawPiece(piece, selected = false) {
     }
     if (piece.cooldown > 0) {
         const elapsed = currentTime - (piece.move_start_time || currentTime);
-        const maxCooldown = (gameState.board[piece.x][piece.y] === TERRAIN_FOREST) ? 6000 : 3000;
+        const maxCooldown = (gameState.board[piece.x][piece.y] === TERRAIN_FOREST) ? 10000 : 5000; // Updated to match server: 5s on grass, 10s on forest
         const opacity = Math.max(0, piece.cooldown / maxCooldown);
         ctx.fillStyle = `rgba(255, 0, 0, ${opacity})`;
         ctx.fillRect(rectX, rectY, CELL_SIZE, CELL_SIZE);
@@ -273,6 +277,8 @@ canvas.addEventListener('click', (e) => {
     if (!gameState || gameState.gameOver) return;
     const x = Math.floor(e.offsetX / CELL_SIZE), y = Math.floor(e.offsetY / CELL_SIZE);
     const pieceIdx = gameState.pieces.findIndex(p => p.x === x && p.y === y && p.team === team && p.cooldown === 0);
+
+    console.log(`Clicked at (${x}, ${y}), pieceIdx: ${pieceIdx}, selectedPiece: ${selectedPiece}, piece state:`, pieceIdx !== -1 ? gameState.pieces[pieceIdx] : 'none');
 
     if (pieceIdx !== -1) {
         // If clicking on a piece that can be selected
