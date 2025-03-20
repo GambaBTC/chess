@@ -8,6 +8,10 @@
 </head>
 <body>
     <div class="container">
+        <div id="solPrompt" style="display: none;">
+            <input type="text" id="solAddress" placeholder="Enter your SOL address">
+            <button onclick="submitSolAddress()">Join Game</button>
+        </div>
         <div class="game-area">
             <canvas id="gameCanvas" width="700" height="700"></canvas>
             <div id="infoPanel">
