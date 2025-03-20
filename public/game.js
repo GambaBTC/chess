@@ -143,7 +143,6 @@ socket.on('gameOver', (state) => {
             if (timeLeft <= 0) {
                 clearInterval(countdownInterval);
                 promptDiv.remove();
-                // Default to Exit if no choice is made
                 socket.disconnect();
                 window.location.reload();
             }
@@ -301,7 +300,7 @@ function render() {
     if (gameState.hillOccupant !== null) {
         const remainingTime = (HILL_HOLD_TIME - gameState.hillTimer).toFixed(1);
         hillBar.innerHTML = `<div id="hillProgress" style="width: ${gameState.hillTimer / HILL_HOLD_TIME * 100}%; background: ${gameState.hillOccupant === 0 ? '#fff' : '#f00'}"></div>`;
-        hillBar.title = `${remainingTime}s remaining`; // Tooltip for accessibility
+        hillBar.title = `${remainingTime}s remaining`;
     } else {
         hillBar.innerHTML = '';
     }
