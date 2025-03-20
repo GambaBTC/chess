@@ -109,7 +109,7 @@ canvas {
 
 #timerDisplay {
     font-weight: bold;
-    color: #d32f2f; /* Red color for timers to make them stand out */
+    color: #d32f2f;
 }
 
 #notification {
@@ -186,7 +186,6 @@ canvas {
     background: #2a5298;
 }
 
-/* Added styles for SOL prompt */
 #solPrompt {
     position: fixed;
     top: 50%;
@@ -225,6 +224,26 @@ canvas {
     background: #2a5298;
 }
 
+#adBanner {
+    background: #f0f0f0;
+    border: 1px dashed #1e3c72;
+    border-radius: 5px;
+    padding: 10px;
+    text-align: center;
+    margin-bottom: 20px;
+    width: 100%;
+    max-width: 970px; /* Standard banner ad width */
+    height: 90px; /* Standard banner ad height */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#adBanner p {
+    font-size: 18px;
+    color: #666;
+}
+
 /* Responsive Design */
 @media (max-width: 1000px) {
     .game-area {
@@ -235,6 +254,11 @@ canvas {
     #infoPanel {
         margin-left: 0;
         margin-top: 20px;
+        width: 100%;
+        max-width: 300px;
+    }
+
+    #adBanner {
         width: 100%;
         max-width: 300px;
     }
@@ -290,5 +314,10 @@ canvas {
     #solPrompt button {
         font-size: 14px;
         padding: 8px 16px;
+    }
+
+    #adBanner {
+        height: 60px;
+        font-size: 16px;
     }
 }
