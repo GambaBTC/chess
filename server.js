@@ -8,6 +8,7 @@ const { Connection, Keypair, Transaction, SystemProgram, sendAndConfirmTransacti
 const BOARD_SIZE = 35;
 const HILL_HOLD_TIME = 45; // seconds
 const INACTIVITY_TIMEOUT = 90; // seconds (90 seconds for inactivity timeout)
+const GAME_OFFER_TIMEOUT = 10; // seconds (10 seconds to accept game offer)
 const SOLANA_PRIZE = 0.005; // SOL
 const MOVE_DURATION = 0.2; // seconds
 const SHRINE_DELETE_CHANCE = 0.20;
@@ -37,7 +38,7 @@ io.on('connection', (socket) => {
 
         // If a game is already active, add the player to the queue
         if (currentGame) {
-            playerPool.push({ socket, solAddress });
+            playerPool.push({ socket, solAddress, accepted: false });
             socket.emit('waiting', `Waiting for an opponent... You are in the queue (${playerPool.length} players waiting)`);
             // Add to spectators so they can watch the current game
             spectators.push(socket);
@@ -46,18 +47,56 @@ io.on('connection', (socket) => {
             io.emit('queueUpdate', playerPool.length);
         } else {
             // No active game, add to player pool and try to start a game
-            playerPool.push({ socket, solAddress });
+            playerPool.push({ socket, solAddress, accepted: false });
             socket.emit('waiting', `Waiting for an opponent... You are in the queue (${playerPool.length} players waiting)`);
             io.emit('queueUpdate', playerPool.length);
 
             // If there are at least 2 players in the pool, start a game
             if (playerPool.length >= 2 && !currentGame) {
-                const player1 = playerPool.shift();
-                const player2 = playerPool.shift();
+                startGameFromQueue();
+            }
+        }
+    });
+
+    socket.on('joinQueue', (solAddress) => {
+        if (!solAddress) return socket.disconnect();
+        console.log(`Player ${socket.id} rejoined queue with SOL address: ${solAddress}`);
+
+        // Add the player back to the queue
+        if (currentGame) {
+            playerPool.push({ socket, solAddress, accepted: false });
+            socket.emit('waiting', `Waiting for an opponent... You are in the queue (${playerPool.length} players waiting)`);
+            // Add to spectators
+            spectators.push(socket);
+            socket.emit('spectate', currentGame.getFullState());
+            io.emit('queueUpdate', playerPool.length);
+        } else {
+            playerPool.push({ socket, solAddress, accepted: false });
+            socket.emit('waiting', `Waiting for an opponent... You are in the queue (${playerPool.length} players waiting)`);
+            io.emit('queueUpdate', playerPool.length);
+
+            if (playerPool.length >= 2 && !currentGame) {
+                startGameFromQueue();
+            }
+        }
+    });
+
+    socket.on('acceptGame', () => {
+        const player = playerPool.find(p => p.socket.id === socket.id);
+        if (player) {
+            player.accepted = true;
+            console.log(`Player ${socket.id} accepted game offer`);
+
+            // Check if both selected players have accepted
+            const readyPlayers = playerPool.filter(p => p.accepted);
+            if (readyPlayers.length >= 2 && !currentGame) {
+                const player1 = readyPlayers[0];
+                const player2 = readyPlayers[1];
+                playerPool.splice(playerPool.indexOf(player1), 1);
+                playerPool.splice(playerPool.indexOf(player2), 1);
                 console.log('Starting game between', player1.socket.id, 'and', player2.socket.id);
                 currentGame = new Game(player1, player2);
                 currentGame.start();
-                // Broadcast updated queue size
                 io.emit('queueUpdate', playerPool.length);
             }
         }
@@ -88,11 +127,7 @@ io.on('connection', (socket) => {
             currentGame = null;
             // Start a new game if there are enough players in the queue
             if (playerPool.length >= 2) {
-                const player1 = playerPool.shift();
-                const player2 = playerPool.shift();
-                console.log('Starting new game between', player1.socket.id, 'and', player2.socket.id);
-                currentGame = new Game(player1, player2);
-                currentGame.start();
+                startGameFromQueue();
             }
             io.emit('queueUpdate', playerPool.length);
         }
@@ -108,6 +143,44 @@ io.on('connection', (socket) => {
         }
     });
 });
+
+function startGameFromQueue() {
+    if (playerPool.length < 2) return;
+
+    // Select the first two players
+    const player1 = playerPool[0];
+    const player2 = playerPool[1];
+
+    // Emit game offer to both players
+    player1.socket.emit('gameOffer', GAME_OFFER_TIMEOUT);
+    player2.socket.emit('gameOffer', GAME_OFFER_TIMEOUT);
+
+    // Set a timeout to check if players accept
+    setTimeout(() => {
+        if (!currentGame) { // Only proceed if a game hasn't already started
+            // Check if players accepted
+            const player1Accepted = playerPool.find(p => p.socket.id === player1.socket.id)?.accepted || false;
+            const player2Accepted = playerPool.find(p => p.socket.id === player2.socket.id)?.accepted || false;
+
+            if (!player1Accepted) {
+                console.log(`Player ${player1.socket.id} did not accept game offer, removing from queue`);
+                playerPool.splice(playerPool.findIndex(p => p.socket.id === player1.socket.id), 1);
+                player1.socket.emit('queueUpdate', playerPool.length);
+            }
+            if (!player2Accepted) {
+                console.log(`Player ${player2.socket.id} did not accept game offer, removing from queue`);
+                playerPool.splice(playerPool.findIndex(p => p.socket.id === player2.socket.id), 1);
+                player2.socket.emit('queueUpdate', playerPool.length);
+            }
+
+            // Try to start a new game with the remaining players
+            if (playerPool.length >= 2) {
+                startGameFromQueue();
+            }
+            io.emit('queueUpdate', playerPool.length);
+        }
+    }, GAME_OFFER_TIMEOUT * 1000);
+}
 
 class Piece {
     constructor(team, type, x, y) {
@@ -486,11 +559,7 @@ class Game {
 
         // Start a new game if there are enough players in the queue
         if (playerPool.length >= 2) {
-            const player1 = playerPool.shift();
-            const player2 = playerPool.shift();
-            console.log('Starting new game between', player1.socket.id, 'and', player2.socket.id);
-            currentGame = new Game(player1, player2);
-            currentGame.start();
+            startGameFromQueue();
         }
 
         // Broadcast updated queue size
