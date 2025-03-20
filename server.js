@@ -8,7 +8,7 @@ const { Connection, Keypair, Transaction, SystemProgram, sendAndConfirmTransacti
 const BOARD_SIZE = 35;
 const HILL_HOLD_TIME = 45; // seconds
 const INACTIVITY_TIMEOUT = 90; // seconds (90 seconds for inactivity timeout)
-const GAME_OFFER_TIMEOUT = 10; // seconds (10 seconds to accept game offer)
+const GAME_OFFER_TIMEOUT = 15; // seconds (15 seconds to accept game offer)
 const SOLANA_PRIZE = 0.005; // SOL
 const MOVE_DURATION = 0.2; // seconds
 const SHRINE_DELETE_CHANCE = 0.20;
@@ -31,6 +31,9 @@ const spectators = []; // List of spectators
 
 io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
+
+    // Notify the client of a server restart (in case they reconnect after a restart)
+    socket.emit('serverRestart');
 
     socket.on('join', (solAddress) => {
         if (!solAddress) return socket.disconnect();
@@ -441,6 +444,13 @@ class Game {
         const player1TimeLeft = INACTIVITY_TIMEOUT * 1000 - (currentTime - this.player1LastMoveTime);
         const player2TimeLeft = INACTIVITY_TIMEOUT * 1000 - (currentTime - this.player2LastMoveTime);
 
+        // Check if both players are inactive
+        if (player1TimeLeft <= 0 && player2TimeLeft <= 0) {
+            this.endGame(null, "dual_inactivity"); // Both players lose
+            return;
+        }
+
+        // Check if only one player is inactive
         if (player1TimeLeft <= 0) {
             this.endGame(1, "inactivity_timeout"); // Player 1 (Team 0) loses
             return;
@@ -533,25 +543,36 @@ class Game {
 
     async endGame(winnerTeam, reason) {
         clearInterval(this.interval);
-        const winner = winnerTeam === 0 ? this.player1 : this.player2;
-        const loser = winnerTeam === 0 ? this.player2 : this.player1;
         const state = this.getFullState();
         state.gameOver = true;
         state.winner = winnerTeam;
         state.winReason = reason;
-        console.log(`Game ended: Team ${winnerTeam} won by ${reason}`);
-        winner.socket.emit('gameOver', state);
-        loser.socket.emit('gameOver', state);
-        // Send game over state to all spectators
-        spectators.forEach(spectator => {
-            spectator.emit('gameOver', state);
-        });
+        console.log(`Game ended: ${winnerTeam !== null ? `Team ${winnerTeam} won by ${reason}` : `No winner due to ${reason}`}`);
 
-        try {
-            const txId = await sendSol(winner.solAddress, SOLANA_PRIZE);
-            console.log(`Prize sent to ${winner.solAddress}: ${txId}`);
-        } catch (err) {
-            console.error('SOLANA transaction failed:', err);
+        // Send game over state to players and spectators
+        if (winnerTeam !== null) {
+            const winner = winnerTeam === 0 ? this.player1 : this.player2;
+            const loser = winnerTeam === 0 ? this.player2 : this.player1;
+            winner.socket.emit('gameOver', state);
+            loser.socket.emit('gameOver', state);
+            // Send game over state to all spectators
+            spectators.forEach(spectator => {
+                spectator.emit('gameOver', state);
+            });
+
+            try {
+                const txId = await sendSol(winner.solAddress, SOLANA_PRIZE);
+                console.log(`Prize sent to ${winner.solAddress}: ${txId}`);
+            } catch (err) {
+                console.error('SOLANA transaction failed:', err);
+            }
+        } else {
+            // Both players lose (dual inactivity)
+            this.player1.socket.emit('gameOver', state);
+            this.player2.socket.emit('gameOver', state);
+            spectators.forEach(spectator => {
+                spectator.emit('gameOver', state);
+            });
         }
 
         // Clear the current game
