@@ -17,12 +17,13 @@
             <div id="infoPanel">
                 <div id="hillBar"></div>
                 <div id="status">Waiting...</div>
+                <div id="adBanner">
+                    <p>Your ad here</p>
+                </div>
                 <div id="balanceDisplay">Server SOL: Loading...</div>
                 <div id="queueDisplay">Players in queue: 0</div>
                 <div id="timerDisplay">Team 0: 90s | Team 1: 90s</div>
-            </div>
-            <div id="adBanner">
-                <p>Your ad here</p>
+                <div id="gameCountdown">Game Time: 10:00</div>
             </div>
         </div>
         <div class="instructions">
@@ -47,7 +48,7 @@
                 <li><strong>Queue System:</strong> Only one game can be active at a time. If a game is ongoing, you’ll be placed in a queue. When the current game ends, the next two players in the queue start immediately. The queue size is displayed (e.g., "Players in queue: 0").</li>
                 <li><strong>Spectator Mode:</strong> If you’re in the queue, you can spectate the current game but cannot interact.</li>
                 <li><strong>Shrines:</strong> Gray squares are shrines. Moving onto a shrine has a 20% chance to delete the piece and an 80% chance to duplicate it to the right (if space is available).</li>
-                <li><strong>Winning:</strong> Win by capturing the opponent’s king or holding the hill for 45 seconds. The winner receives a random SOL prize from our Solana faucet: 0.001 SOL (60% chance, most common), 0.005 SOL (30% chance, average), or 0.01 SOL (10% chance, rarest). Enjoy the thrill of earning SOL while you play!</li>
+                <li><strong>Winning:</strong> Win by capturing the opponent’s king, holding the hill for 45 seconds, or having the most pieces after 10 minutes. The winner receives a random SOL prize from our Solana faucet (0.001 SOL: 60%, 0.005 SOL: 30%, 0.01 SOL: 10%, rarest), but only if at least 10 moves are made in the match. Enjoy earning SOL!</li>
                 <li><strong>Game Over:</strong> After a game ends, you have 10 seconds to choose "Exit" or "Go to Queue" before the prompt disappears.</li>
             </ul>
         </div>
