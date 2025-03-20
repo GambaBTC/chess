@@ -10,7 +10,7 @@ body {
 canvas {
     border: 1px solid #fff;
 }
-#status, #hillBar {
+#status, #hillBar, #balanceDisplay {
     color: white;
     margin-top: 10px;
     font-family: Arial, sans-serif;
