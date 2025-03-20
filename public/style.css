@@ -186,6 +186,45 @@ canvas {
     background: #2a5298;
 }
 
+/* Added styles for SOL prompt */
+#solPrompt {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: #ffffff;
+    border: 2px solid #1e3c72;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    text-align: center;
+    z-index: 1000;
+}
+
+#solPrompt input {
+    padding: 8px;
+    font-size: 16px;
+    border: 1px solid #1e3c72;
+    border-radius: 5px;
+    margin-bottom: 10px;
+    width: 80%;
+    max-width: 300px;
+}
+
+#solPrompt button {
+    background: #1e3c72;
+    color: #fff;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+#solPrompt button:hover {
+    background: #2a5298;
+}
+
 /* Responsive Design */
 @media (max-width: 1000px) {
     .game-area {
@@ -235,6 +274,20 @@ canvas {
     }
 
     .game-over-prompt button {
+        font-size: 14px;
+        padding: 8px 16px;
+    }
+
+    #solPrompt {
+        width: 90%;
+        padding: 15px;
+    }
+
+    #solPrompt input {
+        font-size: 14px;
+    }
+
+    #solPrompt button {
         font-size: 14px;
         padding: 8px 16px;
     }
