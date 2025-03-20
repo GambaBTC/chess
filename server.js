@@ -194,24 +194,27 @@ class Game {
 
     placeShrines() {
         const totalCells = BOARD_SIZE * BOARD_SIZE;
-        const shrineCount = Math.floor(totalCells * 0.01); // 1% of 35x35 ≈ 12 shrines
+        const shrineCount = Math.floor(totalCells * 0.01); // 1% of cells, ≈12 shrines
         const shrines = [];
         const possiblePositions = [];
+
         for (let x = 0; x < BOARD_SIZE; x++) {
             for (let y = 0; y < BOARD_SIZE; y++) {
-                // Avoid spawn areas (Team 0: x=13-20, y=33-34; Team 1: x=13-20, y=0-1) and hill (17, 17)
-                if (board[x][y] === TERRAIN_GRASS && 
-                    !(x >= 13 && x <= 20 && y >= 33 && y <= 34) && 
-                    !(x >= 13 && x <= 20 && y >= 0 && y <= 1) && 
-                    !(x === 17 && y === 17)) {
+                // Check terrain and avoid spawn areas and hill
+                if (this.board[x][y] === TERRAIN_GRASS && 
+                    !(x >= 13 && x <= 20 && y >= 33 && y <= 34) && // Team 0 spawn
+                    !(x >= 13 && x <= 20 && y >= 0 && y <= 1) &&   // Team 1 spawn
+                    !(x === 17 && y === 17)) {                     // Hill
                     possiblePositions.push([x, y]);
                 }
             }
         }
+
         for (let i = 0; i < Math.min(shrineCount, possiblePositions.length); i++) {
             const idx = Math.floor(Math.random() * possiblePositions.length);
             shrines.push(possiblePositions.splice(idx, 1)[0]);
         }
+
         console.log('Shrines placed:', shrines);
         return shrines;
     }
