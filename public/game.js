@@ -54,9 +54,12 @@ socket.on('update', (state) => {
     } else {
         // Delta update
         offset = Date.now() - state.serverTime;
+        // Update cooldowns for all pieces in the delta
         state.pieces.forEach(dp => {
             const piece = gameState.pieces.find(p => p.x === dp.x && p.y === dp.y && p.team === dp.team && p.type === dp.type);
-            if (piece) piece.cooldown = dp.cooldown;
+            if (piece) {
+                piece.cooldown = dp.cooldown;
+            }
         });
         gameState.hillOccupant = state.hillOccupant;
         gameState.hillTimer = state.hillTimer;
@@ -288,8 +291,9 @@ canvas.addEventListener('click', (e) => {
         console.log('Move sent:', { pieceIdx: selectedPiece, targetX: x, targetY: y });
         selectedPiece = null; // Deselect after moving
     } else {
-        // Clicking on an empty square with no piece selected, do nothing
-        console.log('Clicked on empty square with no piece selected');
+        // Clicking on an empty square with no piece selected, deselect any piece
+        selectedPiece = null;
+        console.log('Clicked on empty square, deselected any piece');
     }
 });
 
