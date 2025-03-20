@@ -82,58 +82,58 @@ class Piece {
         this.move_duration = MOVE_DURATION;
     }
 
-    getLegalMoves(grid, pieces) {
+    getLegalMoves(board, pieces) {
         const moves = {
             "pawn": this.getPawnMoves,
             "knight": this.getKnightMoves,
-            "bishop": () => this.getSlidingMoves(grid, pieces, [[-1, -1], [-1, 1], [1, -1], [1, 1]], 5),
-            "rook": () => this.getSlidingMoves(grid, pieces, [[-1, 0], [1, 0], [0, -1], [0, 1]], 5),
-            "queen": () => this.getSlidingMoves(grid, pieces, [[-1, -1], [-1, 1], [1, -1], [1, 1], [-1, 0], [1, 0], [0, -1], [0, 1]], 7),
+            "bishop": () => this.getSlidingMoves(board, pieces, [[-1, -1], [-1, 1], [1, -1], [1, 1]], 5),
+            "rook": () => this.getSlidingMoves(board, pieces, [[-1, 0], [1, 0], [0, -1], [0, 1]], 5),
+            "queen": () => this.getSlidingMoves(board, pieces, [[-1, -1], [-1, 1], [1, -1], [1, 1], [-1, 0], [1, 0], [0, -1], [0, 1]], 7),
             "king": this.getKingMoves
         };
-        return moves[this.type](grid, pieces);
+        return moves[this.type](board, pieces);
     }
 
-    getPawnMoves(grid, pieces) {
+    getPawnMoves(board, pieces) {
         const moves = [];
-        const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]]; // Omnidirectional movement
-        const captureDirections = [[-1, -1], [-1, 1], [1, -1], [1, 1]]; // Diagonal captures
+        const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+        const captureDirections = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
         for (const [dx, dy] of directions) {
             const nx = this.x + dx, ny = this.y + dy;
-            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER) {
-                if (!pieces[nx][ny]) moves.push([nx, ny]); // Empty square
+            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && board[nx][ny] !== TERRAIN_WATER) {
+                if (!pieces.some(p => p.x === nx && p.y === ny)) moves.push([nx, ny]);
             }
         }
         for (const [dx, dy] of captureDirections) {
             const nx = this.x + dx, ny = this.y + dy;
-            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER) {
-                const target = pieces[nx][ny];
-                if (target && target.team !== this.team) moves.push([nx, ny]); // Enemy piece
+            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && board[nx][ny] !== TERRAIN_WATER) {
+                const target = pieces.find(p => p.x === nx && p.y === ny);
+                if (target && target.team !== this.team) moves.push([nx, ny]);
             }
         }
         return moves;
     }
 
-    getKnightMoves(grid, pieces) {
+    getKnightMoves(board, pieces) {
         const moves = [];
         const knightMoves = [[-2, -1], [-2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2], [2, -1], [2, 1]];
         for (const [dx, dy] of knightMoves) {
             const nx = this.x + dx, ny = this.y + dy;
-            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER) {
-                const target = pieces[nx][ny];
-                if (!target || target.team !== this.team) moves.push([nx, ny]); // Empty or enemy square
+            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && board[nx][ny] !== TERRAIN_WATER) {
+                const target = pieces.find(p => p.x === nx && p.y === ny);
+                if (!target || target.team !== this.team) moves.push([nx, ny]);
             }
         }
         return moves;
     }
 
-    getSlidingMoves(grid, pieces, directions, maxRange) {
+    getSlidingMoves(board, pieces, directions, maxRange) {
         const moves = [];
         for (const [dx, dy] of directions) {
             for (let i = 1; i <= maxRange; i++) {
                 const nx = this.x + dx * i, ny = this.y + dy * i;
-                if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE || grid[nx][ny] === TERRAIN_WATER) break;
-                const target = pieces[nx][ny];
+                if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE || board[nx][ny] === TERRAIN_WATER) break;
+                const target = pieces.find(p => p.x === nx && p.y === ny);
                 if (target) {
                     if (target.team !== this.team) moves.push([nx, ny]);
                     break;
@@ -144,13 +144,13 @@ class Piece {
         return moves;
     }
 
-    getKingMoves(grid, pieces) {
+    getKingMoves(board, pieces) {
         const moves = [];
         const kingMoves = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
         for (const [dx, dy] of kingMoves) {
             const nx = this.x + dx, ny = this.y + dy;
-            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER) {
-                const target = pieces[nx][ny];
+            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && board[nx][ny] !== TERRAIN_WATER) {
+                const target = pieces.find(p => p.x === nx && p.y === ny);
                 if (!target || target.team !== this.team) moves.push([nx, ny]);
             }
         }
@@ -212,21 +212,19 @@ class Game {
             }
         }
 
-        board[17][17] = TERRAIN_GRASS; // Hill
+        board[17][17] = TERRAIN_GRASS;
         return board;
     }
 
     placePieces() {
-        // Initialize the 2D array with null values for all positions
-        const pieces = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(null));
-
+        const pieces = [];
         const placeTeam = (team, xStart, pawnRow, backRow) => {
             for (let i = 0; i < 8; i++) {
-                pieces[xStart + i][pawnRow] = new Piece(team, "pawn", xStart + i, pawnRow);
+                pieces.push(new Piece(team, "pawn", xStart + i, pawnRow));
             }
             const backPieces = ["rook", "knight", "bishop", "queen", "king", "bishop", "knight", "rook"];
             for (let i = 0; i < 8; i++) {
-                pieces[xStart + i][backRow] = new Piece(team, backPieces[i], xStart + i, backRow);
+                pieces.push(new Piece(team, backPieces[i], xStart + i, backRow));
             }
         };
 
@@ -272,17 +270,15 @@ class Game {
         const currentTime = Date.now();
         let changed = false;
 
-        for (let x = 0; x < BOARD_SIZE; x++) {
-            for (let y = 0; y < BOARD_SIZE; y++) {
-                const piece = this.pieces[x][y];
-                if (piece && piece.cooldown > 0) {
-                    piece.cooldown = Math.max(0, piece.cooldown - 100);
-                    changed = true;
-                }
+        for (let i = 0; i < this.pieces.length; i++) {
+            const piece = this.pieces[i];
+            if (piece && piece.cooldown > 0) {
+                piece.cooldown = Math.max(0, piece.cooldown - 100);
+                changed = true;
             }
         }
 
-        const hillPiece = this.pieces[this.hill.x][this.hill.y];
+        const hillPiece = this.pieces.find(p => p.x === this.hill.x && p.y === this.hill.y);
         if (hillPiece) {
             if (this.hillOccupant === hillPiece.team) {
                 if (currentTime - this.hillStartTime >= HILL_HOLD_TIME * 1000) {
@@ -309,8 +305,7 @@ class Game {
 
     handleMove(socketId, { pieceIdx, targetX, targetY }) {
         const team = this.player1.socket.id === socketId ? 0 : 1;
-        const piecesFlat = this.pieces.flat().filter(p => p);
-        const piece = piecesFlat[pieceIdx];
+        const piece = this.pieces[pieceIdx];
         if (!piece || piece.team !== team || piece.cooldown > 0) {
             console.log('Move rejected:', { pieceIdx, targetX, targetY, reason: 'invalid piece or cooldown' });
             return;
@@ -322,14 +317,14 @@ class Game {
             return;
         }
 
-        const targetPiece = this.pieces[targetX][targetY];
-        if (targetPiece && targetPiece.team === piece.team) {
-            console.log('Move rejected:', { pieceIdx, targetX, targetY, reason: 'friendly piece at target' });
-            return;
-        }
-
-        if (targetPiece) {
-            this.pieces[targetX][targetY] = null;
+        const targetPieceIdx = this.pieces.findIndex(p => p.x === targetX && p.y === targetY);
+        if (targetPieceIdx !== -1) {
+            const targetPiece = this.pieces[targetPieceIdx];
+            if (targetPiece.team === piece.team) {
+                console.log('Move rejected:', { pieceIdx, targetX, targetY, reason: 'friendly piece at target' });
+                return;
+            }
+            this.pieces.splice(targetPieceIdx, 1);
             if (targetPiece.type === 'king') {
                 this.endGame(team, "king_capture");
                 return;
@@ -337,21 +332,19 @@ class Game {
         }
 
         const shrineIdx = this.shrines.findIndex(([x, y]) => x === targetX && y === targetY);
-        this.pieces[piece.x][piece.y] = null;
         piece.old_x = piece.x; piece.old_y = piece.y;
         piece.x = targetX; piece.y = targetY;
         piece.move_start_time = Date.now();
         piece.cooldown = (this.board[targetX][targetY] === TERRAIN_FOREST ? 2 : 1) * 1500;
-        this.pieces[targetX][targetY] = piece;
-
+        
         if (shrineIdx !== -1) {
             this.shrines.splice(shrineIdx, 1);
             if (Math.random() < SHRINE_DELETE_CHANCE) {
-                this.pieces[targetX][targetY] = null;
+                this.pieces.splice(pieceIdx, 1);
             } else {
                 const newX = targetX + 1;
-                if (newX < BOARD_SIZE && !this.pieces[newX][targetY]) {
-                    this.pieces[newX][targetY] = new Piece(team, piece.type, newX, targetY);
+                if (newX < BOARD_SIZE && !this.pieces.find(p => p.x === newX && p.y === targetY)) {
+                    this.pieces.push(new Piece(team, piece.type, newX, targetY));
                 }
             }
         }
@@ -384,11 +377,10 @@ class Game {
     }
 
     getFullState() {
-        const piecesFlat = this.pieces.flat().filter(p => p);
         return {
             serverTime: Date.now(),
             board: this.board,
-            pieces: piecesFlat.map(p => ({
+            pieces: this.pieces.map(p => ({
                 team: p.team,
                 type: p.type,
                 x: p.x,
@@ -409,10 +401,9 @@ class Game {
     }
 
     getDeltaState() {
-        const piecesFlat = this.pieces.flat().filter(p => p && p.cooldown > 0);
         return {
             serverTime: Date.now(),
-            pieces: piecesFlat.map(p => ({
+            pieces: this.pieces.filter(p => p.cooldown > 0).map(p => ({
                 team: p.team,
                 type: p.type,
                 x: p.x,
