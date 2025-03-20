@@ -96,20 +96,18 @@ class Piece {
 
     getPawnMoves(grid, pieces) {
         const moves = [];
-        const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]]; // Omnidirectional movement
-        const captureDirections = [[-1, -1], [-1, 1], [1, -1], [1, 1]]; // Diagonal captures
+        const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]];
         for (const [dx, dy] of directions) {
             const nx = this.x + dx, ny = this.y + dy;
-            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER) {
-                const targetPiece = pieces[nx] && pieces[nx][ny];
-                if (!targetPiece) moves.push([nx, ny]);
+            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER && !pieces[nx]?.[ny]) {
+                moves.push([nx, ny]);
             }
         }
+        const captureDirections = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
         for (const [dx, dy] of captureDirections) {
             const nx = this.x + dx, ny = this.y + dy;
-            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER) {
-                const targetPiece = pieces[nx] && pieces[nx][ny];
-                if (targetPiece && targetPiece.team !== this.team) moves.push([nx, ny]);
+            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && pieces[nx]?.[ny]?.team !== this.team) {
+                moves.push([nx, ny]);
             }
         }
         return moves;
@@ -120,9 +118,9 @@ class Piece {
         const knightMoves = [[-2, -1], [-2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2], [2, -1], [2, 1]];
         for (const [dx, dy] of knightMoves) {
             const nx = this.x + dx, ny = this.y + dy;
-            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER) {
-                const targetPiece = pieces[nx] && pieces[nx][ny];
-                if (!targetPiece || targetPiece.team !== this.team) moves.push([nx, ny]);
+            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER &&
+                (!pieces[nx]?.[ny] || pieces[nx][ny].team !== this.team)) {
+                moves.push([nx, ny]);
             }
         }
         return moves;
@@ -134,9 +132,8 @@ class Piece {
             for (let i = 1; i <= maxRange; i++) {
                 const nx = this.x + dx * i, ny = this.y + dy * i;
                 if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE || grid[nx][ny] === TERRAIN_WATER) break;
-                const targetPiece = pieces[nx] && pieces[nx][ny];
-                if (targetPiece) {
-                    if (targetPiece.team !== this.team) moves.push([nx, ny]);
+                if (pieces[nx]?.[ny]) {
+                    if (pieces[nx][ny].team !== this.team) moves.push([nx, ny]);
                     break;
                 }
                 moves.push([nx, ny]);
@@ -150,9 +147,9 @@ class Piece {
         const kingMoves = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
         for (const [dx, dy] of kingMoves) {
             const nx = this.x + dx, ny = this.y + dy;
-            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER) {
-                const targetPiece = pieces[nx] && pieces[nx][ny];
-                if (!targetPiece || targetPiece.team !== this.team) moves.push([nx, ny]);
+            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER &&
+                (!pieces[nx]?.[ny] || pieces[nx][ny].team !== this.team)) {
+                moves.push([nx, ny]);
             }
         }
         return moves;
@@ -169,7 +166,7 @@ class Game {
         this.hillOccupant = null;
         this.hillStartTime = null;
         this.shrines = this.placeShrines();
-        this.lastState = null; // For delta updates
+        this.interval = null;
     }
 
     generateBoard() {
@@ -260,29 +257,28 @@ class Game {
     }
 
     start() {
-        const state = this.getFullState();
-        this.lastState = state;
+        const state = this.getState();
         this.player1.socket.emit('gameStart', { team: 0, state });
         this.player2.socket.emit('gameStart', { team: 1, state });
         console.log(`Game started for players ${this.player1.socket.id} and ${this.player2.socket.id}`);
-        setInterval(() => this.updateHill(), 1000); // Update hill every second
+        this.interval = setInterval(() => this.update(), 50); // ~20 FPS, smoother than 60 but less taxing
     }
 
-    updateHill() {
+    update() {
         const currentTime = Date.now();
-        const hillPiece = this.pieces[this.hill.x]?.[this.hill.y];
         let changed = false;
 
         for (let x = 0; x < BOARD_SIZE; x++) {
             for (let y = 0; y < BOARD_SIZE; y++) {
                 const piece = this.pieces[x]?.[y];
                 if (piece && piece.cooldown > 0) {
-                    piece.cooldown = Math.max(0, piece.cooldown - 1000);
+                    piece.cooldown = Math.max(0, piece.cooldown - 50);
                     changed = true;
                 }
             }
         }
 
+        const hillPiece = this.pieces[this.hill.x]?.[this.hill.y];
         if (hillPiece) {
             if (this.hillOccupant === hillPiece.team) {
                 if (currentTime - this.hillStartTime >= HILL_HOLD_TIME * 1000) {
@@ -300,7 +296,11 @@ class Game {
             changed = true;
         }
 
-        if (changed) this.sendDeltaUpdate();
+        if (changed) {
+            const state = this.getState();
+            this.player1.socket.emit('update', state);
+            this.player2.socket.emit('update', state);
+        }
     }
 
     handleMove(socketId, { pieceIdx, targetX, targetY }) {
@@ -353,16 +353,19 @@ class Game {
         }
 
         console.log('Move accepted:', { pieceIdx, targetX, targetY });
-        this.sendDeltaUpdate();
+        const state = this.getState();
+        this.player1.socket.emit('update', state);
+        this.player2.socket.emit('update', state);
     }
 
     async endGame(winnerTeam, reason) {
-        const state = this.getFullState();
+        clearInterval(this.interval);
+        const winner = winnerTeam === 0 ? this.player1 : this.player2;
+        const loser = winnerTeam === 0 ? this.player2 : this.player1;
+        const state = this.getState();
         state.gameOver = true;
         state.winner = winnerTeam;
         state.winReason = reason;
-        const winner = winnerTeam === 0 ? this.player1 : this.player2;
-        const loser = winnerTeam === 0 ? this.player2 : this.player1;
         console.log(`Game ended: Team ${winnerTeam} won by ${reason}`);
         winner.socket.emit('gameOver', state);
         loser.socket.emit('gameOver', state);
@@ -376,7 +379,7 @@ class Game {
         games.splice(games.indexOf(this), 1);
     }
 
-    getFullState() {
+    getState() {
         const piecesFlat = this.pieces.flat().filter(p => p);
         return {
             serverTime: Date.now(),
@@ -399,38 +402,6 @@ class Game {
             winner: null,
             winReason: null
         };
-    }
-
-    getDeltaState() {
-        const piecesFlat = this.pieces.flat().filter(p => p);
-        const lastPieces = this.lastState ? this.lastState.pieces : [];
-        const changedPieces = piecesFlat.filter(p => {
-            const last = lastPieces.find(lp => lp.x === p.old_x && lp.y === p.old_y && lp.team === p.team && lp.type === p.type);
-            return !last || last.x !== p.x || last.y !== p.y || last.cooldown !== p.cooldown || last.move_start_time !== p.move_start_time;
-        });
-        return {
-            serverTime: Date.now(),
-            pieces: changedPieces.map(p => ({
-                team: p.team,
-                type: p.type,
-                x: p.x,
-                y: p.y,
-                old_x: p.old_x,
-                old_y: p.old_y,
-                cooldown: p.cooldown,
-                move_start_time: p.move_start_time
-            })),
-            hillOccupant: this.hillOccupant,
-            hillTimer: this.hillStartTime ? (Date.now() - this.hillStartTime) / 1000 : 0,
-            shrines: this.shrines
-        };
-    }
-
-    sendDeltaUpdate() {
-        const state = this.getDeltaState();
-        this.lastState = this.getFullState();
-        this.player1.socket.emit('update', state);
-        this.player2.socket.emit('update', state);
     }
 }
 
