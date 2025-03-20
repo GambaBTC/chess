@@ -153,7 +153,7 @@ function drawPiece(piece, selected = false) {
     }
     if (piece.cooldown > 0) {
         const elapsed = currentTime - (piece.move_start_time || currentTime);
-        const maxCooldown = (gameState.board[piece.x][piece.y] === TERRAIN_FOREST) ? 6000 : 3000; // Updated to match server
+        const maxCooldown = (gameState.board[piece.x][piece.y] === TERRAIN_FOREST) ? 6000 : 3000;
         const opacity = Math.max(0, piece.cooldown / maxCooldown);
         ctx.fillStyle = `rgba(255, 0, 0, ${opacity})`;
         ctx.fillRect(rectX, rectY, CELL_SIZE, CELL_SIZE);
@@ -272,20 +272,14 @@ canvas.addEventListener('click', (e) => {
     const pieceIdx = gameState.pieces.findIndex(p => p.x === x && p.y === y && p.team === team && p.cooldown === 0);
 
     if (pieceIdx !== -1) {
-        // If clicking on a piece that can be selected (same or different piece)
-        if (selectedPiece === null || selectedPiece !== pieceIdx) {
-            selectedPiece = pieceIdx;
-            console.log('Piece selected:', gameState.pieces[pieceIdx]);
-        } else {
-            // Clicking the same piece again, deselect it
-            selectedPiece = null;
-            console.log('Piece deselected');
-        }
+        // If clicking on a piece that can be selected
+        selectedPiece = pieceIdx; // Always select the piece, even if it's the same one
+        console.log('Piece selected:', gameState.pieces[pieceIdx]);
     } else if (selectedPiece !== null) {
         // If a piece is selected and we click on a non-piece square, attempt to move
         socket.emit('move', { pieceIdx: selectedPiece, targetX: x, targetY: y });
         console.log('Move sent:', { pieceIdx: selectedPiece, targetX: x, targetY: y });
-        selectedPiece = null;
+        // Do not deselect the piece after moving, so it can be moved again immediately after cooldown
     } else {
         // Clicking on an empty square with no piece selected, do nothing
         console.log('Clicked on empty square with no piece selected');
