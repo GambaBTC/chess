@@ -4,6 +4,8 @@ const ctx = canvas.getContext('2d');
 const statusDiv = document.getElementById('status');
 const hillBar = document.getElementById('hillBar');
 const balanceDisplay = document.getElementById('balanceDisplay');
+const queueDisplay = document.getElementById('queueDisplay'); // Add this element in your HTML
+const timerDisplay = document.getElementById('timerDisplay'); // Add this element in your HTML
 const CELL_SIZE = canvas.width / 35;
 const MOVE_DURATION = 0.2;
 const BOARD_SIZE = 35;
@@ -11,7 +13,7 @@ const HILL_HOLD_TIME = 45; // Increased from 30 to 45 seconds
 const TERRAIN_WATER = 2;
 const TERRAIN_FOREST = 1;
 
-let team, gameState, offset, selectedPiece = null;
+let team, gameState, offset, selectedPiece = null, isSpectating = false;
 
 document.addEventListener('DOMContentLoaded', () => {
     let solAddress = prompt('Enter your SOLANA address:');
@@ -43,7 +45,22 @@ socket.on('gameStart', (data) => {
     }
     offset = Date.now() - data.state.serverTime;
     statusDiv.textContent = `Playing as Team ${team}`;
+    isSpectating = false; // Player is in the game, not spectating
     console.log('Game state initialized:', gameState);
+    requestAnimationFrame(render);
+});
+
+socket.on('spectate', (state) => {
+    console.log('Spectate received:', state);
+    gameState = state;
+    if (!gameState.board || !gameState.pieces) {
+        console.error('Invalid spectate state missing board or pieces:', gameState);
+        return;
+    }
+    offset = Date.now() - state.serverTime;
+    statusDiv.textContent = 'Spectating the current game';
+    isSpectating = true; // Client is in spectator mode
+    console.log('Spectating game state initialized:', gameState);
     requestAnimationFrame(render);
 });
 
@@ -67,27 +84,39 @@ socket.on('update', (state) => {
         });
         gameState.hillOccupant = state.hillOccupant;
         gameState.hillTimer = state.hillTimer;
+        gameState.player1Timer = state.player1Timer;
+        gameState.player2Timer = state.player2Timer;
     }
 });
 
 socket.on('gameOver', (state) => {
     gameState = state;
-    statusDiv.textContent = state.winner === team ? `You won by ${state.winReason}! 0.005 SOL sent.` : `You lost by ${state.winReason}.`;
+    statusDiv.textContent = isSpectating 
+        ? `Game Over: Team ${state.winner} won by ${state.winReason}!`
+        : state.winner === team 
+            ? `You won by ${state.winReason}! 0.005 SOL sent.` 
+            : `You lost by ${state.winReason}.`;
     console.log('Game over:', state);
-    setTimeout(() => {
-        let solAddress = prompt('Enter your SOLANA address to play again:');
-        if (solAddress && solAddress.trim() !== '') {
-            socket.emit('join', solAddress);
-            socket.emit('getBalance');
-        } else {
-            alert('A valid Solana address is required to play.');
-            window.location.reload();
-        }
-    }, 3000);
+    if (!isSpectating) {
+        setTimeout(() => {
+            let solAddress = prompt('Enter your SOLANA address to play again:');
+            if (solAddress && solAddress.trim() !== '') {
+                socket.emit('join', solAddress);
+                socket.emit('getBalance');
+            } else {
+                alert('A valid Solana address is required to play.');
+                window.location.reload();
+            }
+        }, 3000);
+    }
 });
 
 socket.on('serverBalance', (balance) => {
     balanceDisplay.textContent = `Server SOL: ${typeof balance === 'string' ? balance : balance.toFixed(4)} SOL`;
+});
+
+socket.on('queueUpdate', (queueSize) => {
+    queueDisplay.textContent = `Players in queue: ${queueSize}`;
 });
 
 function drawPiece(piece, selected = false) {
@@ -209,6 +238,11 @@ function render() {
         }
     });
 
+    // Display inactivity timers for both teams
+    if (gameState.player1Timer !== undefined && gameState.player2Timer !== undefined) {
+        timerDisplay.textContent = `Team 0: ${gameState.player1Timer.toFixed(1)}s | Team 1: ${gameState.player2Timer.toFixed(1)}s`;
+    }
+
     if (!gameState.gameOver) {
         requestAnimationFrame(render);
     }
@@ -241,7 +275,7 @@ function calculateLegalMoves(piece) {
         },
         "bishop": () => getSlidingMoves([[-1, -1], [-1, 1], [1, -1], [1, 1]], 5),
         "rook": () => getSlidingMoves([[-1, 0], [1, 0], [0, -1], [0, 1]], 5),
-        "queen": () => getSlidingMoves([[-1, -1], [-1, 1], [1, -1], [1, 1], [-1, 0], [1, 0], [0, -1], [0, 1]], 7),
+        "queen": () => getSlidingMoves([[-1, -1], [-1, 1], [1, -1], [1, 1], [-1, 0], [1, 0], [0, -1], [0, 1]], 5), // Reduced range from 7 to 5
         "king": () => {
             const moves = [];
             for (const [dx, dy] of [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]]) {
@@ -274,7 +308,7 @@ function calculateLegalMoves(piece) {
 }
 
 canvas.addEventListener('click', (e) => {
-    if (!gameState || gameState.gameOver) return;
+    if (!gameState || gameState.gameOver || isSpectating) return; // Disable interaction for spectators
     const x = Math.floor(e.offsetX / CELL_SIZE), y = Math.floor(e.offsetY / CELL_SIZE);
     const pieceIdx = gameState.pieces.findIndex(p => p.x === x && p.y === y && p.team === team && p.cooldown === 0);
 
@@ -305,9 +339,4 @@ canvas.addEventListener('click', (e) => {
 
 ctx.polygon = function(points) {
     this.beginPath();
-    this.moveTo(points[0][0], points[0][1]);
-    for (let i = 1; i < points.length; i++) this.lineTo(points[i][0], points[i][1]);
-    this.closePath();
-};
-
-requestAnimationFrame(render);
+    this.moveTo(points[0][0],
