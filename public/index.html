@@ -8,6 +8,16 @@
 </head>
 <body>
     <div class="container">
+        <div class="game-area">
+            <canvas id="gameCanvas" width="700" height="700"></canvas>
+            <div id="infoPanel">
+                <div id="hillBar"></div>
+                <div id="status">Waiting...</div>
+                <div id="balanceDisplay">Server SOL: Loading...</div>
+                <div id="queueDisplay">Players in queue: 0</div>
+                <div id="timerDisplay">Team 0: 90s | Team 1: 90s</div>
+            </div>
+        </div>
         <div class="instructions">
             <h2>How to Play Chess Conquest</h2>
             <p>Welcome to Chess Conquest, a strategic game where you compete to either capture the opponent's king or conquer the central hill!</p>
@@ -32,16 +42,6 @@
                 <li><strong>Shrines:</strong> Gray squares are shrines. Moving onto a shrine has a 20% chance to delete the piece and an 80% chance to duplicate it to the right (if space is available).</li>
                 <li><strong>Winning:</strong> Win by capturing the opponent’s king or holding the hill for 45 seconds. The winner receives 0.005 SOL!</li>
             </ul>
-        </div>
-        <div class="game-area">
-            <canvas id="gameCanvas" width="700" height="700"></canvas>
-            <div id="infoPanel">
-                <div id="hillBar"></div>
-                <div id="status">Waiting...</div>
-                <div id="balanceDisplay">Server SOL: Loading...</div>
-                <div id="queueDisplay">Players in queue: 0</div>
-                <div id="timerDisplay">Team 0: 90s | Team 1: 90s</div>
-            </div>
         </div>
     </div>
     <script src="/socket.io/socket.io.js"></script>
