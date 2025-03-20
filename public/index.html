@@ -1,15 +1,37 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <title>Chess RTS</title>
-    <link rel="stylesheet" href="style.css">
+    <title>Chess Game</title>
+    <style>
+        canvas {
+            border: 1px solid black;
+        }
+        #hillBar {
+            width: 200px;
+            height: 20px;
+            border: 1px solid black;
+            position: absolute;
+            top: 10px;
+            left: 10px;
+        }
+        #hillProgress {
+            height: 100%;
+            background: #fff;
+            transition: width 0.1s linear;
+        }
+        #status, #balanceDisplay, #queueDisplay, #timerDisplay {
+            margin: 10px;
+            font-family: Arial, sans-serif;
+        }
+    </style>
 </head>
 <body>
     <canvas id="gameCanvas" width="700" height="700"></canvas>
-    <div id="status">Loading...</div> <!-- Added initial text to match original behavior -->
     <div id="hillBar"></div>
+    <div id="status">Waiting...</div>
     <div id="balanceDisplay">Server SOL: Loading...</div>
+    <div id="queueDisplay">Players in queue: 0</div>
+    <div id="timerDisplay">Team 0: 90s | Team 1: 90s</div>
     <script src="/socket.io/socket.io.js"></script>
     <script src="game.js"></script>
 </body>
