@@ -97,17 +97,18 @@ class Piece {
     getPawnMoves(grid, pieces) {
         const moves = [];
         const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+        const captureDirections = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
         for (const [dx, dy] of directions) {
             const nx = this.x + dx, ny = this.y + dy;
-            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER && !pieces[nx]?.[ny]) {
-                moves.push([nx, ny]);
+            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER) {
+                if (!pieces[nx]?.[ny]) moves.push([nx, ny]);
             }
         }
-        const captureDirections = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
         for (const [dx, dy] of captureDirections) {
             const nx = this.x + dx, ny = this.y + dy;
-            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && pieces[nx]?.[ny]?.team !== this.team) {
-                moves.push([nx, ny]);
+            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER) {
+                const target = pieces[nx]?.[ny];
+                if (target && target.team !== this.team) moves.push([nx, ny]);
             }
         }
         return moves;
@@ -118,9 +119,9 @@ class Piece {
         const knightMoves = [[-2, -1], [-2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2], [2, -1], [2, 1]];
         for (const [dx, dy] of knightMoves) {
             const nx = this.x + dx, ny = this.y + dy;
-            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER &&
-                (!pieces[nx]?.[ny] || pieces[nx][ny].team !== this.team)) {
-                moves.push([nx, ny]);
+            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER) {
+                const target = pieces[nx]?.[ny];
+                if (!target || target.team !== this.team) moves.push([nx, ny]);
             }
         }
         return moves;
@@ -132,8 +133,9 @@ class Piece {
             for (let i = 1; i <= maxRange; i++) {
                 const nx = this.x + dx * i, ny = this.y + dy * i;
                 if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE || grid[nx][ny] === TERRAIN_WATER) break;
-                if (pieces[nx]?.[ny]) {
-                    if (pieces[nx][ny].team !== this.team) moves.push([nx, ny]);
+                const target = pieces[nx]?.[ny];
+                if (target) {
+                    if (target.team !== this.team) moves.push([nx, ny]);
                     break;
                 }
                 moves.push([nx, ny]);
@@ -147,9 +149,9 @@ class Piece {
         const kingMoves = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
         for (const [dx, dy] of kingMoves) {
             const nx = this.x + dx, ny = this.y + dy;
-            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER &&
-                (!pieces[nx]?.[ny] || pieces[nx][ny].team !== this.team)) {
-                moves.push([nx, ny]);
+            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER) {
+                const target = pieces[nx]?.[ny];
+                if (!target || target.team !== this.team) moves.push([nx, ny]);
             }
         }
         return moves;
@@ -257,11 +259,11 @@ class Game {
     }
 
     start() {
-        const state = this.getState();
+        const state = this.getFullState();
         this.player1.socket.emit('gameStart', { team: 0, state });
         this.player2.socket.emit('gameStart', { team: 1, state });
         console.log(`Game started for players ${this.player1.socket.id} and ${this.player2.socket.id}`);
-        this.interval = setInterval(() => this.update(), 50); // ~20 FPS, smoother than 60 but less taxing
+        this.interval = setInterval(() => this.update(), 100); // 10 FPS for lightweight updates
     }
 
     update() {
@@ -272,7 +274,7 @@ class Game {
             for (let y = 0; y < BOARD_SIZE; y++) {
                 const piece = this.pieces[x]?.[y];
                 if (piece && piece.cooldown > 0) {
-                    piece.cooldown = Math.max(0, piece.cooldown - 50);
+                    piece.cooldown = Math.max(0, piece.cooldown - 100);
                     changed = true;
                 }
             }
@@ -297,9 +299,9 @@ class Game {
         }
 
         if (changed) {
-            const state = this.getState();
-            this.player1.socket.emit('update', state);
-            this.player2.socket.emit('update', state);
+            const delta = this.getDeltaState();
+            this.player1.socket.emit('update', delta);
+            this.player2.socket.emit('update', delta);
         }
     }
 
@@ -353,7 +355,7 @@ class Game {
         }
 
         console.log('Move accepted:', { pieceIdx, targetX, targetY });
-        const state = this.getState();
+        const state = this.getFullState();
         this.player1.socket.emit('update', state);
         this.player2.socket.emit('update', state);
     }
@@ -362,7 +364,7 @@ class Game {
         clearInterval(this.interval);
         const winner = winnerTeam === 0 ? this.player1 : this.player2;
         const loser = winnerTeam === 0 ? this.player2 : this.player1;
-        const state = this.getState();
+        const state = this.getFullState();
         state.gameOver = true;
         state.winner = winnerTeam;
         state.winReason = reason;
@@ -379,7 +381,7 @@ class Game {
         games.splice(games.indexOf(this), 1);
     }
 
-    getState() {
+    getFullState() {
         const piecesFlat = this.pieces.flat().filter(p => p);
         return {
             serverTime: Date.now(),
@@ -401,6 +403,22 @@ class Game {
             gameOver: false,
             winner: null,
             winReason: null
+        };
+    }
+
+    getDeltaState() {
+        const piecesFlat = this.pieces.flat().filter(p => p && p.cooldown > 0);
+        return {
+            serverTime: Date.now(),
+            pieces: piecesFlat.map(p => ({
+                team: p.team,
+                type: p.type,
+                x: p.x,
+                y: p.y,
+                cooldown: p.cooldown
+            })),
+            hillOccupant: this.hillOccupant,
+            hillTimer: this.hillStartTime ? (Date.now() - this.hillStartTime) / 1000 : 0
         };
     }
 }
