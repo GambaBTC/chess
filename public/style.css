@@ -97,7 +97,7 @@ canvas {
     transition: width 0.1s linear;
 }
 
-#status, #balanceDisplay, #queueDisplay, #timerDisplay {
+#status, #balanceDisplay, #queueDisplay, #timerDisplay, #gameCountdown {
     font-size: 16px;
     color: #333;
 }
@@ -110,6 +110,11 @@ canvas {
 #timerDisplay {
     font-weight: bold;
     color: #d32f2f;
+}
+
+#gameCountdown {
+    font-weight: bold;
+    color: #1e3c72;
 }
 
 #notification {
@@ -230,17 +235,15 @@ canvas {
     border-radius: 5px;
     padding: 10px;
     text-align: center;
-    width: 250px; /* Square size matching #infoPanel */
-    height: 250px;
+    width: 100%;
+    height: 100px;
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-left: 20px;
-    flex-shrink: 0;
 }
 
 #adBanner p {
-    font-size: 18px;
+    font-size: 16px;
     color: #666;
 }
 
@@ -251,15 +254,11 @@ canvas {
         align-items: center;
     }
 
-    #infoPanel, #adBanner {
+    #infoPanel {
         margin-left: 0;
         margin-top: 20px;
         width: 100%;
         max-width: 300px;
-    }
-
-    #adBanner {
-        height: 100px; /* Reduce height on smaller screens */
     }
 }
 
@@ -317,6 +316,10 @@ canvas {
 
     #adBanner {
         height: 60px;
-        font-size: 16px;
+        font-size: 14px;
+    }
+
+    #status, #balanceDisplay, #queueDisplay, #timerDisplay, #gameCountdown {
+        font-size: 14px;
     }
 }
