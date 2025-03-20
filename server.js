@@ -2,29 +2,24 @@ const express = require('express');
 const app = express();
 const server = require('http').createServer(app);
 const io = require('socket.io')(server);
-const { Connection, Keypair, Transaction, SystemProgram, sendAndConfirmTransaction, PublicKey, LAMPORTS_PER_SOL } = require('@solana/web3.js');
+const { Connection, Keypair, Transaction, System⋮Program, sendAndConfirmTransaction, PublicKey, LAMPORTS_PER_SOL } = require('@solana/web3.js');
 
 // Constants
 const BOARD_SIZE = 35;
-const HILL_HOLD_TIME = 45; // seconds
-const INACTIVITY_TIMEOUT = 90; // seconds
-const GAME_OFFER_TIMEOUT = 15; // seconds
-const MOVE_DURATION = 0.2; // seconds
+const HILL_HOLD_TIME = 45;
+const INACTIVITY_TIMEOUT = 90;
+const GAME_OFFER_TIMEOUT = 15;
+const MOVE_DURATION = 0.2;
 const SHRINE_DELETE_CHANCE = 0.20;
 const TERRAIN_GRASS = 0, TERRAIN_FOREST = 1, TERRAIN_WATER = 2;
 
-// Connect to Solana Mainnet
 const connection = new Connection('https://api.mainnet-beta.solana.com');
-
-// Load the private key from environment variable
-const serverKeypair = Keypair.fromSecretKey(
-  Uint8Array.from(JSON.parse(process.env.SOLANA_PRIVATE_KEY || '[]'))
-);
+const serverKeypair = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(process.env.SOLANA_PRIVATE_KEY || '[]')));
 console.log('Server Public Key:', serverKeypair.publicKey.toBase58());
 
 app.use(express.static('public'));
 
-const clients = new Map(); // socket.id -> { socket, solAddress, inPool: false, inGame: false }
+const clients = new Map();
 const playerPool = [];
 let currentGame = null;
 const spectators = [];
@@ -556,13 +551,12 @@ class Game {
         if (winnerTeam !== null) {
             const winner = winnerTeam === 0 ? this.player1 : this.player2;
             const loser = winnerTeam === 0 ? this.player2 : this.player1;
-            // Randomize SOL prize: 0.001 (60%), 0.005 (30%), 0.01 (10%)
             const rand = Math.random();
             let prize;
-            if (rand < 0.6) prize = 0.001;      // 60% chance
-            else if (rand < 0.9) prize = 0.005; // 30% chance
-            else prize = 0.01;                  // 10% chance
-            state.prize = prize; // Include prize in state for client display
+            if (rand < 0.6) prize = 0.001;
+            else if (rand < 0.9) prize = 0.005;
+            else prize = 0.01;
+            state.prize = prize;
 
             winner.socket.emit('gameOver', state);
             loser.socket.emit('gameOver', state);
@@ -588,6 +582,7 @@ class Game {
         this.player2.inGame = false;
         currentGame = null;
 
+        // Immediately start the next game from the queue if possible
         if (playerPool.length >= 2) {
             startGameFromQueue();
         }
