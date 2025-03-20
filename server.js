@@ -4,32 +4,27 @@ const server = require('http').createServer(app);
 const io = require('socket.io')(server);
 const { Connection, Keypair, Transaction, SystemProgram, sendAndConfirmTransaction, PublicKey, LAMPORTS_PER_SOL } = require('@solana/web3.js');
 
+// Constants
 const BOARD_SIZE = 35;
-const HILL_HOLD_TIME = 30;
-const SOLANA_PRIZE = 0.005; // Reduced payout to 0.005 SOL
-const MOVE_DURATION = 0.2;
-const SHRINE_DELETE_CHANCE = 0.20; // 1/5 chance to delete piece
+const HILL_HOLD_TIME = 30; // seconds
+const SOLANA_PRIZE = 0.005; // SOL
+const MOVE_DURATION = 0.2; // seconds
+const SHRINE_DELETE_CHANCE = 0.20;
 const TERRAIN_GRASS = 0, TERRAIN_FOREST = 1, TERRAIN_WATER = 2;
 
 // Connect to Solana Mainnet
 const connection = new Connection('https://api.mainnet-beta.solana.com');
-const serverKeypair = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(process.env.SOLANA_PRIVATE_KEY || '[]')));
+
+// Load the private key from environment variable
+const serverKeypair = Keypair.fromSecretKey(
+  Uint8Array.from(JSON.parse(process.env.SOLANA_PRIVATE_KEY || '[]'))
+);
+console.log('Server Public Key:', serverKeypair.publicKey.toBase58());
 
 app.use(express.static('public'));
 
 const playerPool = [];
 const games = [];
-
-// Function to fetch server wallet balance
-async function getServerBalance() {
-    try {
-        const balance = await connection.getBalance(serverKeypair.publicKey);
-        return balance / LAMPORTS_PER_SOL; // Convert lamports to SOL
-    } catch (error) {
-        console.error('Error fetching balance:', error);
-        return 0;
-    }
-}
 
 io.on('connection', (socket) => {
     console.log('Player connected:', socket.id);
@@ -91,7 +86,7 @@ class Piece {
 
     getPawnMoves(grid, pieces) {
         const moves = [];
-        const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]]; // Omnidirectional movement
+        const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]]; // Omnidirectional
         for (const [dx, dy] of directions) {
             const nx = this.x + dx, ny = this.y + dy;
             if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER && !pieces[nx]?.[ny]) {
@@ -155,15 +150,6 @@ class Game {
         this.hillStartTime = null;
         this.shrines = this.placeShrines();
         this.interval = null;
-        this.serverBalance = 0; // Initialize balance
-    }
-
-    async start() {
-        this.serverBalance = await getServerBalance(); // Fetch balance on game start
-        const state = this.getState();
-        this.player1.socket.emit('gameStart', { team: 0, state, serverBalance: this.serverBalance });
-        this.player2.socket.emit('gameStart', { team: 1, state, serverBalance: this.serverBalance });
-        this.interval = setInterval(() => this.update(), 1000 / 60);
     }
 
     generateBoard() {
@@ -173,8 +159,8 @@ class Game {
         const forestCells = Math.floor(totalCells * 0.1);
 
         for (let x = 13; x <= 20; x++) {
-            board[x][0] = TERRAIN_GRASS; board[x][1] = TERRAIN_GRASS; // Team 1: rows 0-1
-            board[x][33] = TERRAIN_GRASS; board[x][34] = TERRAIN_GRASS; // Team 0: rows 33-34
+            board[x][0] = TERRAIN_GRASS; board[x][1] = TERRAIN_GRASS; // Team 1
+            board[x][33] = TERRAIN_GRASS; board[x][34] = TERRAIN_GRASS; // Team 0
         }
 
         let placedWater = 0;
@@ -201,7 +187,7 @@ class Game {
             }
         }
 
-        board[17][17] = TERRAIN_GRASS; // Ensure hill is grass
+        board[17][17] = TERRAIN_GRASS; // Hill
         return board;
     }
 
@@ -244,6 +230,14 @@ class Game {
 
         console.log('Shrines placed at:', shrines);
         return shrines;
+    }
+
+    start() {
+        const state = this.getState();
+        this.player1.socket.emit('gameStart', { team: 0, state });
+        this.player2.socket.emit('gameStart', { team: 1, state });
+        console.log(`Game started for players ${this.player1.socket.id} and ${this.player2.socket.id}`);
+        this.interval = setInterval(() => this.update(), 1000 / 60);
     }
 
     update() {
@@ -336,9 +330,6 @@ class Game {
         try {
             const txId = await sendSol(winner.solAddress, SOLANA_PRIZE);
             console.log(`Prize sent to ${winner.solAddress}: ${txId}`);
-            this.serverBalance = await getServerBalance(); // Update balance after transaction
-            winner.socket.emit('serverBalanceUpdate', this.serverBalance);
-            loser.socket.emit('serverBalanceUpdate', this.serverBalance);
         } catch (err) {
             console.error('SOLANA transaction failed:', err);
         }
@@ -377,7 +368,7 @@ async function sendSol(toAddress, amount) {
         SystemProgram.transfer({
             fromPubkey: serverKeypair.publicKey,
             toPubkey: toPubkey,
-            lamports: amount * LAMPORTS_PER_SOL // Convert SOL to lamports
+            lamports: amount * LAMPORTS_PER_SOL
         })
     );
     const signature = await sendAndConfirmTransaction(connection, transaction, [serverKeypair]);
