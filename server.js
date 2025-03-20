@@ -2,7 +2,7 @@ const express = require('express');
 const app = express();
 const server = require('http').createServer(app);
 const io = require('socket.io')(server);
-const { Connection, Keypair, Transaction, System⋮Program, sendAndConfirmTransaction, PublicKey, LAMPORTS_PER_SOL } = require('@solana/web3.js');
+const { Connection, Keypair, Transaction, SystemProgram, sendAndConfirmTransaction, PublicKey, LAMPORTS_PER_SOL } = require('@solana/web3.js');
 
 // Constants
 const BOARD_SIZE = 35;
@@ -582,7 +582,6 @@ class Game {
         this.player2.inGame = false;
         currentGame = null;
 
-        // Immediately start the next game from the queue if possible
         if (playerPool.length >= 2) {
             startGameFromQueue();
         }
