@@ -68,9 +68,9 @@ class Piece {
         const moves = {
             "pawn": this.getPawnMoves,
             "knight": this.getKnightMoves,
-            "bishop": () => this.getSlidingMoves(grid, pieces, [(-1, -1), (-1, 1), (1, -1), (1, 1)], 5),
-            "rook": () => this.getSlidingMoves(grid, pieces, [(-1, 0), (1, 0), (0, -1), (0, 1)], 5),
-            "queen": () => this.getSlidingMoves(grid, pieces, [(-1, -1), (-1, 1), (1, -1), (1, 1), (-1, 0), (1, 0), (0, -1), (0, 1)], 7),
+            "bishop": () => this.getSlidingMoves(grid, pieces, [[-1, -1], [-1, 1], [1, -1], [1, 1]], 5),
+            "rook": () => this.getSlidingMoves(grid, pieces, [[-1, 0], [1, 0], [0, -1], [0, 1]], 5),
+            "queen": () => this.getSlidingMoves(grid, pieces, [[-1, -1], [-1, 1], [1, -1], [1, 1], [-1, 0], [1, 0], [0, -1], [0, 1]], 7),
             "king": this.getKingMoves
         };
         return moves[this.type](grid, pieces);
@@ -143,28 +143,40 @@ class Game {
         this.hill = { x: 17, y: 17 };
         this.hillOccupant = null;
         this.hillStartTime = null;
-        this.shrines = [[10, 10], [24, 24]];
+        this.shrines = this.placeShrines();
         this.interval = null;
     }
 
     generateBoard() {
         const board = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(TERRAIN_GRASS));
-        let waterCount = 0, forestCount = 0, totalCells = BOARD_SIZE * BOARD_SIZE;
-        while (waterCount < totalCells * 0.1) {
-            const x = Math.floor(Math.random() * BOARD_SIZE), y = Math.floor(Math.random() * BOARD_SIZE);
-            if (board[x][y] === TERRAIN_GRASS && (x < 5 || x >= BOARD_SIZE - 5)) {
+        const totalCells = BOARD_SIZE * BOARD_SIZE;
+        const waterCells = Math.floor(totalCells * 0.1);
+        const forestCells = Math.floor(totalCells * 0.1);
+
+        // Randomly place water across the entire board
+        let placedWater = 0;
+        while (placedWater < waterCells) {
+            const x = Math.floor(Math.random() * BOARD_SIZE);
+            const y = Math.floor(Math.random() * BOARD_SIZE);
+            if (board[x][y] === TERRAIN_GRASS && (x !== 17 || y !== 17)) { // Avoid hill
                 board[x][y] = TERRAIN_WATER;
-                waterCount++;
+                placedWater++;
             }
         }
-        while (forestCount < totalCells * 0.1) {
-            const x = Math.floor(Math.random() * BOARD_SIZE), y = Math.floor(Math.random() * BOARD_SIZE);
-            if (board[x][y] === TERRAIN_GRASS) {
+
+        // Randomly place forest across the entire board
+        let placedForest = 0;
+        while (placedForest < forestCells) {
+            const x = Math.floor(Math.random() * BOARD_SIZE);
+            const y = Math.floor(Math.random() * BOARD_SIZE);
+            if (board[x][y] === TERRAIN_GRASS && (x !== 17 || y !== 17)) { // Avoid hill
                 board[x][y] = TERRAIN_FOREST;
-                forestCount++;
+                placedForest++;
             }
         }
-        board[17][17] = TERRAIN_GRASS; // Ensure hill is grass
+
+        // Ensure hill is grass
+        board[17][17] = TERRAIN_GRASS;
         return board;
     }
 
@@ -175,14 +187,39 @@ class Game {
             const backPieces = ["rook", "knight", "bishop", "queen", "king", "bishop", "knight", "rook"];
             for (let i = 0; i < 8; i++) pieces[xStart + i][backRow] = new Piece(team, backPieces[i], xStart + i, backRow);
         };
-        placeTeam(0, 13, 33, 34); // Team 0 bottom
-        placeTeam(1, 13, 0, 1);   // Team 1 top
+        placeTeam(0, 13, 34, 33); // Team 0 bottom: pawns front (34), pieces back (33)
+        placeTeam(1, 13, 0, 1);   // Team 1 top: pawns front (0), pieces back (1)
         return pieces;
+    }
+
+    placeShrines() {
+        const totalCells = BOARD_SIZE * BOARD_SIZE;
+        const shrineCount = Math.floor(totalCells * 0.01); // 1% of 35x35 ≈ 12 shrines
+        const shrines = [];
+        const possiblePositions = [];
+        for (let x = 0; x < BOARD_SIZE; x++) {
+            for (let y = 0; y < BOARD_SIZE; y++) {
+                // Avoid spawn areas (Team 0: x=13-20, y=33-34; Team 1: x=13-20, y=0-1) and hill (17, 17)
+                if (board[x][y] === TERRAIN_GRASS && 
+                    !(x >= 13 && x <= 20 && y >= 33 && y <= 34) && 
+                    !(x >= 13 && x <= 20 && y >= 0 && y <= 1) && 
+                    !(x === 17 && y === 17)) {
+                    possiblePositions.push([x, y]);
+                }
+            }
+        }
+        for (let i = 0; i < Math.min(shrineCount, possiblePositions.length); i++) {
+            const idx = Math.floor(Math.random() * possiblePositions.length);
+            shrines.push(possiblePositions.splice(idx, 1)[0]);
+        }
+        console.log('Shrines placed:', shrines);
+        return shrines;
     }
 
     start() {
         const state = this.getState();
-        console.log('Game started, sending state:', state);
+        console.log('Game started, sending state to player1:', this.player1.socket.id, state);
+        console.log('Game started, sending state to player2:', this.player2.socket.id, state);
         this.player1.socket.emit('gameStart', { team: 0, state });
         this.player2.socket.emit('gameStart', { team: 1, state });
         this.interval = setInterval(() => this.update(), 1000 / 60);
@@ -222,11 +259,17 @@ class Game {
     handleMove(socketId, { pieceIdx, targetX, targetY }) {
         const team = this.player1.socket.id === socketId ? 0 : 1;
         const piece = this.pieces.flat().filter(p => p)[pieceIdx];
-        if (!piece || piece.team !== team || piece.cooldown > 0) return;
+        if (!piece || piece.team !== team || piece.cooldown > 0) {
+            console.log('Invalid move attempt:', { socketId, pieceIdx, targetX, targetY });
+            return;
+        }
 
         const legalMoves = piece.getLegalMoves(this.board, this.pieces);
         const target = [targetX, targetY];
-        if (!legalMoves.some(m => m[0] === targetX && m[1] === targetY)) return;
+        if (!legalMoves.some(m => m[0] === targetX && m[1] === targetY)) {
+            console.log('Move not legal:', { piece, target, legalMoves });
+            return;
+        }
 
         if (this.pieces[targetX] && this.pieces[targetX][targetY]) {
             const targetPiece = this.pieces[targetX][targetY];
@@ -279,10 +322,19 @@ class Game {
     }
 
     getState() {
-        return {
+        const state = {
             serverTime: Date.now(),
             board: this.board,
-            pieces: this.pieces.flat().filter(p => p).map(p => ({ team: p.team, type: p.type, x: p.x, y: p.y, old_x: p.old_x, old_y: p.old_y, cooldown: p.cooldown, move_start_time: p.move_start_time })),
+            pieces: this.pieces.flat().filter(p => p).map(p => ({
+                team: p.team,
+                type: p.type,
+                x: p.x,
+                y: p.y,
+                old_x: p.old_x,
+                old_y: p.old_y,
+                cooldown: p.cooldown,
+                move_start_time: p.move_start_time
+            })),
             hill: this.hill,
             hillOccupant: this.hillOccupant,
             hillTimer: this.hillStartTime ? (Date.now() - this.hillStartTime) / 1000 : 0,
@@ -291,6 +343,8 @@ class Game {
             winner: null,
             winReason: null
         };
+        console.log('Generated state:', state);
+        return state;
     }
 }
 
