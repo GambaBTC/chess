@@ -11,6 +11,9 @@
         <div id="solPrompt" style="display: none;">
             <input type="text" id="solAddress" placeholder="Enter your SOL address">
             <button onclick="submitSolAddress()">Join Game</button>
+            <div class="adBannerPopup">
+                <p>Your ad here</p>
+            </div>
         </div>
         <div class="game-area">
             <canvas id="gameCanvas" width="700" height="700"></canvas>
@@ -56,6 +59,9 @@
             <p id="notificationMessage"></p>
             <p>Time left: <span id="countdown"></span> seconds</p>
             <button id="acceptButton">Accept</button>
+            <div class="adBannerPopup">
+                <p>Your ad here</p>
+            </div>
         </div>
     </div>
     <script src="/socket.io/socket.io.js"></script>
