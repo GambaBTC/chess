@@ -3,6 +3,8 @@ const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const statusDiv = document.getElementById('status');
 const hillBar = document.getElementById('hillBar');
+const balanceDiv = document.createElement('div'); // Add balance display
+document.body.appendChild(balanceDiv);
 const CELL_SIZE = canvas.width / 35;
 const MOVE_DURATION = 0.2;
 const BOARD_SIZE = 35;
@@ -17,9 +19,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let solAddress = prompt('Enter your SOLANA address:');
     if (solAddress && solAddress.trim() !== '') {
         socket.emit('join', solAddress);
+        // Request server balance
+        socket.emit('getBalance');
     } else {
         alert('A valid Solana address is required to play.');
-        window.location.reload(); // Reload to prompt again if invalid
+        window.location.reload();
     }
 });
 
@@ -50,21 +54,27 @@ socket.on('update', (state) => {
     console.log('Update received:', state);
     gameState = state;
     offset = Date.now() - state.serverTime;
+    render(); // Ensure render is called on update
 });
 
 socket.on('gameOver', (state) => {
     gameState = state;
-    statusDiv.textContent = state.winner === team ? `You won by ${state.winReason}! 0.01 SOL sent.` : `You lost by ${state.winReason}.`;
+    statusDiv.textContent = state.winner === team ? `You won by ${state.winReason}! 0.005 SOL sent.` : `You lost by ${state.winReason}.`;
     console.log('Game over:', state);
     setTimeout(() => {
         let solAddress = prompt('Enter your SOLANA address to play again:');
         if (solAddress && solAddress.trim() !== '') {
             socket.emit('join', solAddress);
+            socket.emit('getBalance');
         } else {
             alert('A valid Solana address is required to play.');
             window.location.reload();
         }
     }, 3000);
+});
+
+socket.on('serverBalance', (balance) => {
+    balanceDiv.textContent = `Server SOL Balance: ${balance.toFixed(4)} SOL`;
 });
 
 function drawPiece(piece, selected = false) {
@@ -145,7 +155,7 @@ function render() {
     console.log('Render called, gameState:', gameState);
     if (!gameState) {
         console.error('No gameState to render');
-        ctx.fillStyle = 'red'; // Debug: turn screen red if no state
+        ctx.fillStyle = 'red';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         return;
     }
