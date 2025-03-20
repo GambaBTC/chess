@@ -121,7 +121,7 @@ socket.on('gameOver', (state) => {
         statusDiv.textContent = isSpectating 
             ? `Game Over: Team ${state.winner} won by ${state.winReason}!`
             : state.winner === team 
-                ? `You won by ${state.winReason}! 0.005 SOL sent.` 
+                ? `You won by ${state.winReason}! ${state.prize} SOL sent.` 
                 : `You lost by ${state.winReason}.`;
     }
     console.log('Game over:', state);
@@ -129,21 +129,38 @@ socket.on('gameOver', (state) => {
         const promptDiv = document.createElement('div');
         promptDiv.className = 'game-over-prompt';
         promptDiv.innerHTML = `
-            <p>Game Over! What would you like to do?</p>
+            <p>Game Over! Choose an option within <span id="gameOverCountdown">10</span> seconds:</p>
             <button id="exitButton">Exit</button>
             <button id="queueButton">Go to Queue</button>
         `;
         document.body.appendChild(promptDiv);
 
+        let timeLeft = 10;
+        const countdownElement = document.getElementById('gameOverCountdown');
+        const countdownInterval = setInterval(() => {
+            timeLeft--;
+            countdownElement.textContent = timeLeft;
+            if (timeLeft <= 0) {
+                clearInterval(countdownInterval);
+                promptDiv.remove();
+                // Default to Exit if no choice is made
+                socket.disconnect();
+                window.location.reload();
+            }
+        }, 1000);
+
         document.getElementById('exitButton').addEventListener('click', () => {
+            clearInterval(countdownInterval);
+            promptDiv.remove();
             socket.disconnect();
             window.location.reload();
         });
 
         document.getElementById('queueButton').addEventListener('click', () => {
+            clearInterval(countdownInterval);
+            promptDiv.remove();
             const solAddress = localStorage.getItem('solAddress');
             socket.emit('joinQueue', solAddress);
-            promptDiv.remove();
         });
     }
 });
@@ -282,10 +299,9 @@ function render() {
     ctx.fillStyle = '#ff0';
     ctx.fillRect(gameState.hill.x * CELL_SIZE, gameState.hill.y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
     if (gameState.hillOccupant !== null) {
+        const remainingTime = (HILL_HOLD_TIME - gameState.hillTimer).toFixed(1);
         hillBar.innerHTML = `<div id="hillProgress" style="width: ${gameState.hillTimer / HILL_HOLD_TIME * 100}%; background: ${gameState.hillOccupant === 0 ? '#fff' : '#f00'}"></div>`;
-        ctx.fillStyle = '#fff';
-        ctx.font = '12px Arial';
-        ctx.fillText(`${gameState.hillTimer.toFixed(1)}/${HILL_HOLD_TIME}s`, gameState.hill.x * CELL_SIZE + 2, gameState.hill.y * CELL_SIZE + 12);
+        hillBar.title = `${remainingTime}s remaining`; // Tooltip for accessibility
     } else {
         hillBar.innerHTML = '';
     }
