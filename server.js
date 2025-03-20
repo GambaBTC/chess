@@ -25,6 +25,8 @@ console.log('Server Public Key:', serverKeypair.publicKey.toBase58());
 
 app.use(express.static('public'));
 
+// Map to track all connected clients by socket.id
+const clients = new Map(); // socket.id -> { socket, solAddress, inPool: false, inGame: false }
 const playerPool = []; // Queue of players waiting to play
 let currentGame = null; // Track the current active game
 const spectators = []; // List of spectators
@@ -32,29 +34,44 @@ const spectators = []; // List of spectators
 io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
 
+    // Initialize client if not already present
+    if (!clients.has(socket.id)) {
+        clients.set(socket.id, { socket, solAddress: null, inPool: false, inGame: false });
+        socket.emit('requestSolAddress'); // Prompt for SOL address on new connection
+    }
+
     // Notify the client of a server restart (in case they reconnect after a restart)
     socket.emit('serverRestart');
 
     socket.on('join', (solAddress) => {
         if (!solAddress) return socket.disconnect();
+        const client = clients.get(socket.id);
+        if (!client) return; // Shouldn't happen, but safety check
+
+        // Update client's SOL address
+        client.solAddress = solAddress;
         console.log(`Player ${socket.id} joined with SOL address: ${solAddress}`);
 
-        // If a game is already active, add the player to the queue
+        // If client is already in pool or game, just update SOL address and skip adding
+        if (client.inPool || client.inGame) {
+            return;
+        }
+
+        // If a game is already active, add to queue
         if (currentGame) {
-            playerPool.push({ socket, solAddress, accepted: false });
+            playerPool.push(client);
+            client.inPool = true;
             socket.emit('waiting', `Waiting for an opponent... You are in the queue (${playerPool.length} players waiting)`);
-            // Add to spectators so they can watch the current game
             spectators.push(socket);
             socket.emit('spectate', currentGame.getFullState());
-            // Broadcast updated queue size to all clients
             io.emit('queueUpdate', playerPool.length);
         } else {
             // No active game, add to player pool and try to start a game
-            playerPool.push({ socket, solAddress, accepted: false });
+            playerPool.push(client);
+            client.inPool = true;
             socket.emit('waiting', `Waiting for an opponent... You are in the queue (${playerPool.length} players waiting)`);
             io.emit('queueUpdate', playerPool.length);
 
-            // If there are at least 2 players in the pool, start a game
             if (playerPool.length >= 2 && !currentGame) {
                 startGameFromQueue();
             }
@@ -63,18 +80,26 @@ io.on('connection', (socket) => {
 
     socket.on('joinQueue', (solAddress) => {
         if (!solAddress) return socket.disconnect();
+        const client = clients.get(socket.id);
+        if (!client) return;
+
+        client.solAddress = solAddress;
         console.log(`Player ${socket.id} rejoined queue with SOL address: ${solAddress}`);
 
-        // Add the player back to the queue
+        if (client.inPool || client.inGame) {
+            return;
+        }
+
         if (currentGame) {
-            playerPool.push({ socket, solAddress, accepted: false });
+            playerPool.push(client);
+            client.inPool = true;
             socket.emit('waiting', `Waiting for an opponent... You are in the queue (${playerPool.length} players waiting)`);
-            // Add to spectators
             spectators.push(socket);
             socket.emit('spectate', currentGame.getFullState());
             io.emit('queueUpdate', playerPool.length);
         } else {
-            playerPool.push({ socket, solAddress, accepted: false });
+            playerPool.push(client);
+            client.inPool = true;
             socket.emit('waiting', `Waiting for an opponent... You are in the queue (${playerPool.length} players waiting)`);
             io.emit('queueUpdate', playerPool.length);
 
@@ -90,13 +115,16 @@ io.on('connection', (socket) => {
             player.accepted = true;
             console.log(`Player ${socket.id} accepted game offer`);
 
-            // Check if both selected players have accepted
             const readyPlayers = playerPool.filter(p => p.accepted);
             if (readyPlayers.length >= 2 && !currentGame) {
                 const player1 = readyPlayers[0];
                 const player2 = readyPlayers[1];
                 playerPool.splice(playerPool.indexOf(player1), 1);
                 playerPool.splice(playerPool.indexOf(player2), 1);
+                player1.inPool = false;
+                player2.inPool = false;
+                player1.inGame = true;
+                player2.inGame = true;
                 console.log('Starting game between', player1.socket.id, 'and', player2.socket.id);
                 currentGame = new Game(player1, player2);
                 currentGame.start();
@@ -113,26 +141,27 @@ io.on('connection', (socket) => {
 
     socket.on('disconnect', () => {
         console.log('Client disconnected:', socket.id);
-        // Remove from player pool if they were in the queue
-        const playerIdx = playerPool.findIndex(p => p.socket.id === socket.id);
-        if (playerIdx !== -1) {
-            playerPool.splice(playerIdx, 1);
-            io.emit('queueUpdate', playerPool.length);
-        }
-        // Remove from spectators
-        const spectatorIdx = spectators.findIndex(s => s.id === socket.id);
-        if (spectatorIdx !== -1) {
-            spectators.splice(spectatorIdx, 1);
-        }
-        // If the player was in the current game, end the game
-        if (currentGame && (currentGame.player1.socket.id === socket.id || currentGame.player2.socket.id === socket.id)) {
-            currentGame.endGame(currentGame.player1.socket.id === socket.id ? 1 : 0, "opponent_disconnect");
-            currentGame = null;
-            // Start a new game if there are enough players in the queue
-            if (playerPool.length >= 2) {
-                startGameFromQueue();
+        const client = clients.get(socket.id);
+        if (client) {
+            const playerIdx = playerPool.findIndex(p => p.socket.id === socket.id);
+            if (playerIdx !== -1) {
+                playerPool.splice(playerIdx, 1);
+                client.inPool = false;
+                io.emit('queueUpdate', playerPool.length);
             }
-            io.emit('queueUpdate', playerPool.length);
+            const spectatorIdx = spectators.findIndex(s => s.id === socket.id);
+            if (spectatorIdx !== -1) {
+                spectators.splice(spectatorIdx, 1);
+            }
+            if (currentGame && (currentGame.player1.socket.id === socket.id || currentGame.player2.socket.id === socket.id)) {
+                currentGame.endGame(currentGame.player1.socket.id === socket.id ? 1 : 0, "opponent_disconnect");
+                currentGame = null;
+                if (playerPool.length >= 2) {
+                    startGameFromQueue();
+                }
+                io.emit('queueUpdate', playerPool.length);
+            }
+            clients.delete(socket.id);
         }
     });
 
@@ -150,33 +179,32 @@ io.on('connection', (socket) => {
 function startGameFromQueue() {
     if (playerPool.length < 2) return;
 
-    // Select the first two players
     const player1 = playerPool[0];
     const player2 = playerPool[1];
 
-    // Emit game offer to both players
     player1.socket.emit('gameOffer', GAME_OFFER_TIMEOUT);
     player2.socket.emit('gameOffer', GAME_OFFER_TIMEOUT);
 
-    // Set a timeout to check if players accept
     setTimeout(() => {
-        if (!currentGame) { // Only proceed if a game hasn't already started
-            // Check if players accepted
-            const player1Accepted = playerPool.find(p => p.socket.id === player1.socket.id)?.accepted || false;
-            const player2Accepted = playerPool.find(p => p.socket.id === player2.socket.id)?.accepted || false;
+        if (!currentGame) {
+            const player1Idx = playerPool.findIndex(p => p.socket.id === player1.socket.id);
+            const player2Idx = playerPool.findIndex(p => p.socket.id === player2.socket.id);
+            const player1Accepted = player1Idx !== -1 && playerPool[player1Idx].accepted;
+            const player2Accepted = player2Idx !== -1 && playerPool[player2Idx].accepted;
 
-            if (!player1Accepted) {
+            if (!player1Accepted && player1Idx !== -1) {
                 console.log(`Player ${player1.socket.id} did not accept game offer, removing from queue`);
-                playerPool.splice(playerPool.findIndex(p => p.socket.id === player1.socket.id), 1);
+                playerPool.splice(player1Idx, 1);
+                player1.inPool = false;
                 player1.socket.emit('queueUpdate', playerPool.length);
             }
-            if (!player2Accepted) {
+            if (!player2Accepted && player2Idx !== -1) {
                 console.log(`Player ${player2.socket.id} did not accept game offer, removing from queue`);
-                playerPool.splice(playerPool.findIndex(p => p.socket.id === player2.socket.id), 1);
+                playerPool.splice(player2Idx, 1);
+                player2.inPool = false;
                 player2.socket.emit('queueUpdate', playerPool.length);
             }
 
-            // Try to start a new game with the remaining players
             if (playerPool.length >= 2) {
                 startGameFromQueue();
             }
@@ -197,7 +225,6 @@ class Piece {
         this.move_start_time = null;
         this.move_duration = MOVE_DURATION;
 
-        // Bind methods to ensure `this` always refers to the Piece instance
         this.getLegalMoves = this.getLegalMoves.bind(this);
         this.getPawnMoves = this.getPawnMoves.bind(this);
         this.getKnightMoves = this.getKnightMoves.bind(this);
@@ -212,7 +239,7 @@ class Piece {
             "knight": this.getKnightMoves,
             "bishop": this.getSlidingMoves.bind(this, board, pieces, [[-1, -1], [-1, 1], [1, -1], [1, 1]], 5),
             "rook": this.getSlidingMoves.bind(this, board, pieces, [[-1, 0], [1, 0], [0, -1], [0, 1]], 5),
-            "queen": this.getSlidingMoves.bind(this, board, pieces, [[-1, -1], [-1, 1], [1, -1], [1, 1], [-1, 0], [1, 0], [0, -1], [0, 1]], 5), // Reduced range from 7 to 5
+            "queen": this.getSlidingMoves.bind(this, board, pieces, [[-1, -1], [-1, 1], [1, -1], [1, 1], [-1, 0], [1, 0], [0, -1], [0, 1]], 5),
             "king": this.getKingMoves
         };
         return moves[this.type](board, pieces);
@@ -302,7 +329,6 @@ class Game {
         this.hillStartTime = null;
         this.shrines = this.placeShrines();
         this.interval = null;
-        // Inactivity timers for each player
         this.player1LastMoveTime = Date.now();
         this.player2LastMoveTime = Date.now();
     }
@@ -402,12 +428,11 @@ class Game {
         const state = this.getFullState();
         this.player1.socket.emit('gameStart', { team: 0, state });
         this.player2.socket.emit('gameStart', { team: 1, state });
-        // Send the initial game state to all spectators
         spectators.forEach(spectator => {
             spectator.emit('spectate', state);
         });
         console.log(`Game started for players ${this.player1.socket.id} and ${this.player2.socket.id}`);
-        this.interval = setInterval(() => this.update(), 100); // 10 FPS for lightweight updates
+        this.interval = setInterval(() => this.update(), 100);
     }
 
     update() {
@@ -440,40 +465,34 @@ class Game {
             changed = true;
         }
 
-        // Check inactivity timers for both players
         const player1TimeLeft = INACTIVITY_TIMEOUT * 1000 - (currentTime - this.player1LastMoveTime);
         const player2TimeLeft = INACTIVITY_TIMEOUT * 1000 - (currentTime - this.player2LastMoveTime);
 
-        // Check if both players are inactive
         if (player1TimeLeft <= 0 && player2TimeLeft <= 0) {
-            this.endGame(null, "dual_inactivity"); // Both players lose
+            this.endGame(null, "dual_inactivity");
             return;
         }
 
-        // Check if only one player is inactive
         if (player1TimeLeft <= 0) {
-            this.endGame(1, "inactivity_timeout"); // Player 1 (Team 0) loses
+            this.endGame(1, "inactivity_timeout");
             return;
         }
         if (player2TimeLeft <= 0) {
-            this.endGame(0, "inactivity_timeout"); // Player 2 (Team 1) loses
+            this.endGame(0, "inactivity_timeout");
             return;
         }
 
-        // Always send an update to include the timers, even if no pieces are in cooldown
         const delta = this.getDeltaState();
-        delta.player1Timer = player1TimeLeft / 1000; // Convert to seconds
-        delta.player2Timer = player2TimeLeft / 1000; // Convert to seconds
+        delta.player1Timer = player1TimeLeft / 1000;
+        delta.player2Timer = player2TimeLeft / 1000;
         this.player1.socket.emit('update', delta);
         this.player2.socket.emit('update', delta);
-        // Send delta updates to all spectators
         spectators.forEach(spectator => {
             spectator.emit('update', delta);
         });
 
-        // Send piece updates only if something changed (to reduce network traffic)
         if (this.hillOccupant !== null || changed) {
-            // Already sent above, no need to send again
+            // Already sent above
         }
     }
 
@@ -510,9 +529,8 @@ class Game {
         piece.old_x = piece.x; piece.old_y = piece.y;
         piece.x = targetX; piece.y = targetY;
         piece.move_start_time = Date.now();
-        piece.cooldown = (this.board[targetX][targetY] === TERRAIN_FOREST ? 10 : 5) * 1000; // Increased cooldown: 5s on grass, 10s on forest
+        piece.cooldown = (this.board[targetX][targetY] === TERRAIN_FOREST ? 10 : 5) * 1000;
 
-        // Reset the inactivity timer for the player who made the move
         if (team === 0) {
             this.player1LastMoveTime = Date.now();
         } else {
@@ -535,7 +553,6 @@ class Game {
         const state = this.getFullState();
         this.player1.socket.emit('update', state);
         this.player2.socket.emit('update', state);
-        // Send the updated state to all spectators
         spectators.forEach(spectator => {
             spectator.emit('update', state);
         });
@@ -549,13 +566,11 @@ class Game {
         state.winReason = reason;
         console.log(`Game ended: ${winnerTeam !== null ? `Team ${winnerTeam} won by ${reason}` : `No winner due to ${reason}`}`);
 
-        // Send game over state to players and spectators
         if (winnerTeam !== null) {
             const winner = winnerTeam === 0 ? this.player1 : this.player2;
             const loser = winnerTeam === 0 ? this.player2 : this.player1;
             winner.socket.emit('gameOver', state);
             loser.socket.emit('gameOver', state);
-            // Send game over state to all spectators
             spectators.forEach(spectator => {
                 spectator.emit('gameOver', state);
             });
@@ -567,7 +582,6 @@ class Game {
                 console.error('SOLANA transaction failed:', err);
             }
         } else {
-            // Both players lose (dual inactivity)
             this.player1.socket.emit('gameOver', state);
             this.player2.socket.emit('gameOver', state);
             spectators.forEach(spectator => {
@@ -575,15 +589,14 @@ class Game {
             });
         }
 
-        // Clear the current game
+        this.player1.inGame = false;
+        this.player2.inGame = false;
         currentGame = null;
 
-        // Start a new game if there are enough players in the queue
         if (playerPool.length >= 2) {
             startGameFromQueue();
         }
 
-        // Broadcast updated queue size
         io.emit('queueUpdate', playerPool.length);
     }
 
@@ -622,7 +635,7 @@ class Game {
                 x: p.x,
                 y: p.y,
                 cooldown: p.cooldown
-            })), // Include all pieces, not just those with cooldown > 0
+            })),
             hillOccupant: this.hillOccupant,
             hillTimer: this.hillStartTime ? (Date.now() - this.hillStartTime) / 1000 : 0,
             player1Timer: INACTIVITY_TIMEOUT - (Date.now() - this.player1LastMoveTime) / 1000,
