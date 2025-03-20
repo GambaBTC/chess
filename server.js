@@ -58,10 +58,14 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Add balance request handler
     socket.on('getBalance', async () => {
-        const balance = await connection.getBalance(serverKeypair.publicKey);
-        socket.emit('serverBalance', balance / LAMPORTS_PER_SOL);
+        try {
+            const balance = await connection.getBalance(serverKeypair.publicKey);
+            socket.emit('serverBalance', balance / LAMPORTS_PER_SOL);
+        } catch (err) {
+            console.error('Failed to fetch balance:', err);
+            socket.emit('serverBalance', 'Error');
+        }
     });
 });
 
@@ -102,7 +106,7 @@ class Piece {
         }
         for (const [dx, dy] of captureDirections) {
             const nx = this.x + dx, ny = this.y + dy;
-            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && pieces[nx]?.[ny]?.team !== this.team) {
+            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && pieces[nx]?.[ny] && pieces[nx][ny].team !== this.team) {
                 moves.push([nx, ny]);
             }
         }
@@ -297,13 +301,22 @@ class Game {
         const team = this.player1.socket.id === socketId ? 0 : 1;
         const piecesFlat = this.pieces.flat().filter(p => p);
         const piece = piecesFlat[pieceIdx];
-        if (!piece || piece.team !== team || piece.cooldown > 0) return;
+        if (!piece || piece.team !== team || piece.cooldown > 0) {
+            console.log('Move rejected:', { pieceIdx, targetX, targetY, reason: 'invalid piece or cooldown' });
+            return;
+        }
 
         const legalMoves = piece.getLegalMoves(this.board, this.pieces);
-        if (!legalMoves.some(([x, y]) => x === targetX && y === targetY)) return;
+        if (!legalMoves.some(([x, y]) => x === targetX && y === targetY)) {
+            console.log('Move rejected:', { pieceIdx, targetX, targetY, reason: 'illegal move', legalMoves });
+            return;
+        }
 
         const targetPiece = this.pieces[targetX]?.[targetY];
-        if (targetPiece && targetPiece.team === piece.team) return;
+        if (targetPiece && targetPiece.team === piece.team) {
+            console.log('Move rejected:', { pieceIdx, targetX, targetY, reason: 'friendly piece at target' });
+            return;
+        }
 
         if (targetPiece) {
             this.pieces[targetX][targetY] = null;
@@ -333,6 +346,7 @@ class Game {
             }
         }
 
+        console.log('Move accepted:', { pieceIdx, targetX, targetY });
         this.update();
     }
 
@@ -373,7 +387,9 @@ class Game {
                 move_start_time: p.move_start_time
             })),
             hill: this.hill,
-            hillOccupant: this.hillOccupant,
+            hillOccupant: this.hillOccupant
+
+,
             hillTimer: this.hillStartTime ? (Date.now() - this.hillStartTime) / 1000 : 0,
             shrines: this.shrines,
             gameOver: false,
