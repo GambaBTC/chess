@@ -377,17 +377,20 @@ class Game {
             return;
         }
 
-        // Always send an update if a piece is on the hill to keep the timer updating, or if cooldowns changed
+        // Always send an update to include the timers, even if no pieces are in cooldown
+        const delta = this.getDeltaState();
+        delta.player1Timer = player1TimeLeft / 1000; // Convert to seconds
+        delta.player2Timer = player2TimeLeft / 1000; // Convert to seconds
+        this.player1.socket.emit('update', delta);
+        this.player2.socket.emit('update', delta);
+        // Send delta updates to all spectators
+        spectators.forEach(spectator => {
+            spectator.emit('update', delta);
+        });
+
+        // Send piece updates only if something changed (to reduce network traffic)
         if (this.hillOccupant !== null || changed) {
-            const delta = this.getDeltaState();
-            delta.player1Timer = player1TimeLeft / 1000; // Convert to seconds
-            delta.player2Timer = player2TimeLeft / 1000; // Convert to seconds
-            this.player1.socket.emit('update', delta);
-            this.player2.socket.emit('update', delta);
-            // Send delta updates to all spectators
-            spectators.forEach(spectator => {
-                spectator.emit('update', delta);
-            });
+            // Already sent above, no need to send again
         }
     }
 
