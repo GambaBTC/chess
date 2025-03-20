@@ -101,16 +101,22 @@ class Piece {
         for (const [dx, dy] of directions) {
             const nx = this.x + dx, ny = this.y + dy;
             if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && board[nx][ny] !== TERRAIN_WATER) {
-                if (!pieces.some(p => p.x === nx && p.y === ny)) moves.push([nx, ny]);
+                const target = pieces.find(p => p.x === nx && p.y === ny);
+                if (!target) {
+                    moves.push([nx, ny]);
+                }
             }
         }
         for (const [dx, dy] of captureDirections) {
             const nx = this.x + dx, ny = this.y + dy;
             if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && board[nx][ny] !== TERRAIN_WATER) {
                 const target = pieces.find(p => p.x === nx && p.y === ny);
-                if (target && target.team !== this.team) moves.push([nx, ny]);
+                if (target && target.team !== this.team) {
+                    moves.push([nx, ny]);
+                }
             }
         }
+        console.log(`Pawn at (${this.x}, ${this.y}) legal moves:`, moves);
         return moves;
     }
 
@@ -121,9 +127,12 @@ class Piece {
             const nx = this.x + dx, ny = this.y + dy;
             if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && board[nx][ny] !== TERRAIN_WATER) {
                 const target = pieces.find(p => p.x === nx && p.y === ny);
-                if (!target || target.team !== this.team) moves.push([nx, ny]);
+                if (!target || target.team !== this.team) {
+                    moves.push([nx, ny]);
+                }
             }
         }
+        console.log(`Knight at (${this.x}, ${this.y}) legal moves:`, moves);
         return moves;
     }
 
