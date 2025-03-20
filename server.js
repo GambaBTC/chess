@@ -83,6 +83,7 @@ class Piece {
     }
 
     getLegalMoves(board, pieces) {
+        console.log(`Getting legal moves for ${this.type} at (${this.x}, ${this.y})`);
         const moves = {
             "pawn": this.getPawnMoves,
             "knight": this.getKnightMoves,
@@ -229,11 +230,15 @@ class Game {
         const pieces = [];
         const placeTeam = (team, xStart, pawnRow, backRow) => {
             for (let i = 0; i < 8; i++) {
-                pieces.push(new Piece(team, "pawn", xStart + i, pawnRow));
+                const pawn = new Piece(team, "pawn", xStart + i, pawnRow);
+                console.log(`Placed pawn for team ${team} at (${pawn.x}, ${pawn.y})`);
+                pieces.push(pawn);
             }
             const backPieces = ["rook", "knight", "bishop", "queen", "king", "bishop", "knight", "rook"];
             for (let i = 0; i < 8; i++) {
-                pieces.push(new Piece(team, backPieces[i], xStart + i, backRow));
+                const piece = new Piece(team, backPieces[i], xStart + i, backRow);
+                console.log(`Placed ${backPieces[i]} for team ${team} at (${piece.x}, ${piece.y})`);
+                pieces.push(piece);
             }
         };
 
@@ -320,6 +325,7 @@ class Game {
             return;
         }
 
+        console.log(`Handling move for ${piece.type} at (${piece.x}, ${piece.y}) to (${targetX}, ${targetY})`);
         const legalMoves = piece.getLegalMoves(this.board, this.pieces);
         if (!legalMoves.some(([x, y]) => x === targetX && y === targetY)) {
             console.log('Move rejected:', { pieceIdx, targetX, targetY, reason: 'illegal move', legalMoves });
