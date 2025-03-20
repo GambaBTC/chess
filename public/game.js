@@ -6,6 +6,7 @@ const hillBar = document.getElementById('hillBar');
 const balanceDisplay = document.getElementById('balanceDisplay');
 const queueDisplay = document.getElementById('queueDisplay');
 const timerDisplay = document.getElementById('timerDisplay');
+const gameCountdown = document.getElementById('gameCountdown');
 const notificationDiv = document.getElementById('notification');
 const notificationMessage = document.getElementById('notificationMessage');
 const countdownSpan = document.getElementById('countdown');
@@ -108,28 +109,40 @@ socket.on('update', (state) => {
         gameState.hillTimer = state.hillTimer;
         gameState.player1Timer = state.player1Timer;
         gameState.player2Timer = state.player2Timer;
+        gameState.gameTimeRemaining = state.gameTimeRemaining;
     }
 });
 
 socket.on('gameOver', (state) => {
     gameState = state;
+    let message;
     if (state.winner === null && state.winReason === "dual_inactivity") {
-        statusDiv.textContent = isSpectating 
+        message = isSpectating 
             ? `Game Over: Both players were inactive. No winner!`
             : `Game Over: Both players were inactive. No winner!`;
+    } else if (state.winner === null && state.winReason === "time_limit_reached") {
+        message = isSpectating 
+            ? `Game Over: Time limit reached. Tie due to equal pieces!`
+            : `Game Over: Time limit reached. Tie due to equal pieces!`;
     } else {
-        statusDiv.textContent = isSpectating 
-            ? `Game Over: Team ${state.winner} won by ${state.winReason}!`
-            : state.winner === team 
-                ? `You won by ${state.winReason}! ${state.prize} SOL sent.` 
-                : `You lost by ${state.winReason}.`;
+        if (isSpectating) {
+            message = `Game Over: Team ${state.winner} won by ${state.winReason}!`;
+        } else if (state.winner === team) {
+            message = state.prize > 0 
+                ? `You won by ${state.winReason}! ${state.prize} SOL has been sent to your wallet.`
+                : `You won by ${state.winReason}! No SOL awarded (less than 10 moves).`;
+        } else {
+            message = `You lost by ${state.winReason}. Better luck next time!`;
+        }
     }
+    statusDiv.textContent = message;
     console.log('Game over:', state);
+
     if (!isSpectating) {
         const promptDiv = document.createElement('div');
         promptDiv.className = 'game-over-prompt';
         promptDiv.innerHTML = `
-            <p>Game Over! Choose an option within <span id="gameOverCountdown">10</span> seconds:</p>
+            <p>${message} Choose an option within <span id="gameOverCountdown">10</span> seconds:</p>
             <button id="exitButton">Exit</button>
             <button id="queueButton">Go to Queue</button>
         `;
@@ -278,6 +291,12 @@ function drawPiece(piece, selected = false) {
     }
 }
 
+function formatTime(seconds) {
+    const minutes = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${minutes}:${secs < 10 ? '0' : ''}${secs}`;
+}
+
 function render() {
     if (!gameState) {
         console.error('No gameState to render');
@@ -321,6 +340,10 @@ function render() {
 
     if (gameState.player1Timer !== undefined && gameState.player2Timer !== undefined) {
         timerDisplay.textContent = `Team 0: ${gameState.player1Timer.toFixed(1)}s | Team 1: ${gameState.player2Timer.toFixed(1)}s`;
+    }
+
+    if (gameState.gameTimeRemaining !== undefined) {
+        gameCountdown.textContent = `Game Time: ${formatTime(gameState.gameTimeRemaining)}`;
     }
 
     if (!gameState.gameOver) {
