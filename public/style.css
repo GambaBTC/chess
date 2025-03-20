@@ -26,7 +26,7 @@ body {
     align-items: flex-start;
     flex-wrap: wrap;
     gap: 20px;
-    margin-bottom: 20px; /* Add spacing between game area and instructions */
+    margin-bottom: 20px;
 }
 
 .instructions {
@@ -112,6 +112,80 @@ canvas {
     color: #d32f2f; /* Red color for timers to make them stand out */
 }
 
+#notification {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: #ffeb3b;
+    border: 2px solid #f57f17;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    text-align: center;
+    z-index: 1000;
+}
+
+#notification p {
+    margin-bottom: 10px;
+    font-size: 18px;
+    color: #333;
+}
+
+#notification button {
+    background: #1e3c72;
+    color: #fff;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+#notification button:hover {
+    background: #2a5298;
+}
+
+#notification button:disabled {
+    background: #cccccc;
+    cursor: not-allowed;
+}
+
+.game-over-prompt {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: #ffffff;
+    border: 2px solid #1e3c72;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    text-align: center;
+    z-index: 1000;
+}
+
+.game-over-prompt p {
+    margin-bottom: 15px;
+    font-size: 18px;
+    color: #333;
+}
+
+.game-over-prompt button {
+    background: #1e3c72;
+    color: #fff;
+    border: none;
+    padding: 10px 20px;
+    margin: 0 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.game-over-prompt button:hover {
+    background: #2a5298;
+}
+
 /* Responsive Design */
 @media (max-width: 1000px) {
     .game-area {
@@ -145,5 +219,23 @@ canvas {
 
     .instructions p, .instructions ul li {
         font-size: 14px;
+    }
+
+    #notification p {
+        font-size: 16px;
+    }
+
+    #notification button {
+        font-size: 14px;
+        padding: 8px 16px;
+    }
+
+    .game-over-prompt p {
+        font-size: 16px;
+    }
+
+    .game-over-prompt button {
+        font-size: 14px;
+        padding: 8px 16px;
     }
 }
