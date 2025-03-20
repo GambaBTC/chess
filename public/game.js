@@ -18,6 +18,7 @@ const TERRAIN_WATER = 2;
 const TERRAIN_FOREST = 1;
 
 // Notification sound (base64-encoded WAV file for a simple "ding" sound)
+// This is a placeholder. Replace with a 15-second sound as described below.
 const notificationSound = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
 
 let team, gameState, offset, selectedPiece = null, isSpectating = false;
@@ -30,7 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (solAddress && solAddress.trim() !== '') {
             localStorage.setItem('solAddress', solAddress);
         } else {
-            alert('A valid Solana address is required to play.');
+            alert('A valid Solana address is required to play or spectate.');
             window.location.reload();
             return;
         }
@@ -38,6 +39,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     socket.emit('join', solAddress);
     socket.emit('getBalance');
+});
+
+socket.on('serverRestart', () => {
+    console.log('Server restarted, clearing stored SOL address');
+    localStorage.removeItem('solAddress');
+    // Prompt for a new SOL address on the next action (handled by DOMContentLoaded)
+    window.location.reload();
 });
 
 socket.on('waiting', (message) => {
@@ -105,11 +113,17 @@ socket.on('update', (state) => {
 
 socket.on('gameOver', (state) => {
     gameState = state;
-    statusDiv.textContent = isSpectating 
-        ? `Game Over: Team ${state.winner} won by ${state.winReason}!`
-        : state.winner === team 
-            ? `You won by ${state.winReason}! 0.005 SOL sent.` 
-            : `You lost by ${state.winReason}.`;
+    if (state.winner === null && state.winReason === "dual_inactivity") {
+        statusDiv.textContent = isSpectating 
+            ? `Game Over: Both players were inactive. No winner!`
+            : `Game Over: Both players were inactive. No winner!`;
+    } else {
+        statusDiv.textContent = isSpectating 
+            ? `Game Over: Team ${state.winner} won by ${state.winReason}!`
+            : state.winner === team 
+                ? `You won by ${state.winReason}! 0.005 SOL sent.` 
+                : `You lost by ${state.winReason}.`;
+    }
     console.log('Game over:', state);
     if (!isSpectating) {
         // Show prompt with "Exit" or "Go to Queue" options
@@ -137,6 +151,7 @@ socket.on('gameOver', (state) => {
 
 socket.on('gameOffer', (timeout) => {
     // Play notification sound
+    notificationSound.loop = true; // Loop the sound to play for the full 15 seconds
     notificationSound.play().catch(err => console.error('Error playing sound:', err));
 
     // Show notification with countdown
@@ -151,12 +166,16 @@ socket.on('gameOffer', (timeout) => {
         countdownSpan.textContent = timeLeft;
         if (timeLeft <= 0) {
             clearInterval(countdownInterval);
+            notificationSound.pause();
+            notificationSound.currentTime = 0; // Reset sound
             notificationDiv.style.display = 'none';
         }
     }, 1000);
 
     acceptButton.onclick = () => {
         clearInterval(countdownInterval);
+        notificationSound.pause();
+        notificationSound.currentTime = 0; // Reset sound
         notificationDiv.style.display = 'none';
         socket.emit('acceptGame');
     };
