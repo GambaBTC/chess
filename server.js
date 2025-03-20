@@ -7,9 +7,8 @@ const { Connection, Keypair, Transaction, SystemProgram, sendAndConfirmTransacti
 // Constants
 const BOARD_SIZE = 35;
 const HILL_HOLD_TIME = 45; // seconds
-const INACTIVITY_TIMEOUT = 90; // seconds (90 seconds for inactivity timeout)
-const GAME_OFFER_TIMEOUT = 15; // seconds (15 seconds to accept game offer)
-const SOLANA_PRIZE = 0.005; // SOL
+const INACTIVITY_TIMEOUT = 90; // seconds
+const GAME_OFFER_TIMEOUT = 15; // seconds
 const MOVE_DURATION = 0.2; // seconds
 const SHRINE_DELETE_CHANCE = 0.20;
 const TERRAIN_GRASS = 0, TERRAIN_FOREST = 1, TERRAIN_WATER = 2;
@@ -25,39 +24,30 @@ console.log('Server Public Key:', serverKeypair.publicKey.toBase58());
 
 app.use(express.static('public'));
 
-// Map to track all connected clients by socket.id
 const clients = new Map(); // socket.id -> { socket, solAddress, inPool: false, inGame: false }
-const playerPool = []; // Queue of players waiting to play
-let currentGame = null; // Track the current active game
-const spectators = []; // List of spectators
+const playerPool = [];
+let currentGame = null;
+const spectators = [];
 
 io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
-
-    // Initialize client if not already present
     if (!clients.has(socket.id)) {
         clients.set(socket.id, { socket, solAddress: null, inPool: false, inGame: false });
-        socket.emit('requestSolAddress'); // Prompt for SOL address on new connection
+        socket.emit('requestSolAddress');
     }
 
-    // Notify the client of a server restart (in case they reconnect after a restart)
     socket.emit('serverRestart');
 
     socket.on('join', (solAddress) => {
         if (!solAddress) return socket.disconnect();
         const client = clients.get(socket.id);
-        if (!client) return; // Shouldn't happen, but safety check
+        if (!client) return;
 
-        // Update client's SOL address
         client.solAddress = solAddress;
         console.log(`Player ${socket.id} joined with SOL address: ${solAddress}`);
 
-        // If client is already in pool or game, just update SOL address and skip adding
-        if (client.inPool || client.inGame) {
-            return;
-        }
+        if (client.inPool || client.inGame) return;
 
-        // If a game is already active, add to queue
         if (currentGame) {
             playerPool.push(client);
             client.inPool = true;
@@ -66,7 +56,6 @@ io.on('connection', (socket) => {
             socket.emit('spectate', currentGame.getFullState());
             io.emit('queueUpdate', playerPool.length);
         } else {
-            // No active game, add to player pool and try to start a game
             playerPool.push(client);
             client.inPool = true;
             socket.emit('waiting', `Waiting for an opponent... You are in the queue (${playerPool.length} players waiting)`);
@@ -86,9 +75,7 @@ io.on('connection', (socket) => {
         client.solAddress = solAddress;
         console.log(`Player ${socket.id} rejoined queue with SOL address: ${solAddress}`);
 
-        if (client.inPool || client.inGame) {
-            return;
-        }
+        if (client.inPool || client.inGame) return;
 
         if (currentGame) {
             playerPool.push(client);
@@ -394,8 +381,8 @@ class Game {
             }
         };
 
-        placeTeam(0, 13, 33, 34); // Team 0: pawns on 33, pieces on 34
-        placeTeam(1, 13, 1, 0);   // Team 1: pawns on 1, pieces on 0
+        placeTeam(0, 13, 33, 34);
+        placeTeam(1, 13, 1, 0);
         return pieces;
     }
 
@@ -569,6 +556,14 @@ class Game {
         if (winnerTeam !== null) {
             const winner = winnerTeam === 0 ? this.player1 : this.player2;
             const loser = winnerTeam === 0 ? this.player2 : this.player1;
+            // Randomize SOL prize: 0.001 (60%), 0.005 (30%), 0.01 (10%)
+            const rand = Math.random();
+            let prize;
+            if (rand < 0.6) prize = 0.001;      // 60% chance
+            else if (rand < 0.9) prize = 0.005; // 30% chance
+            else prize = 0.01;                  // 10% chance
+            state.prize = prize; // Include prize in state for client display
+
             winner.socket.emit('gameOver', state);
             loser.socket.emit('gameOver', state);
             spectators.forEach(spectator => {
@@ -576,8 +571,8 @@ class Game {
             });
 
             try {
-                const txId = await sendSol(winner.solAddress, SOLANA_PRIZE);
-                console.log(`Prize sent to ${winner.solAddress}: ${txId}`);
+                const txId = await sendSol(winner.solAddress, prize);
+                console.log(`Prize of ${prize} SOL sent to ${winner.solAddress}: ${txId}`);
             } catch (err) {
                 console.error('SOLANA transaction failed:', err);
             }
