@@ -4,8 +4,12 @@ const ctx = canvas.getContext('2d');
 const statusDiv = document.getElementById('status');
 const hillBar = document.getElementById('hillBar');
 const balanceDisplay = document.getElementById('balanceDisplay');
-const queueDisplay = document.getElementById('queueDisplay'); // Add this element in your HTML
-const timerDisplay = document.getElementById('timerDisplay'); // Add this element in your HTML
+const queueDisplay = document.getElementById('queueDisplay');
+const timerDisplay = document.getElementById('timerDisplay');
+const notificationDiv = document.getElementById('notification');
+const notificationMessage = document.getElementById('notificationMessage');
+const countdownSpan = document.getElementById('countdown');
+const acceptButton = document.getElementById('acceptButton');
 const CELL_SIZE = canvas.width / 35;
 const MOVE_DURATION = 0.2;
 const BOARD_SIZE = 35;
@@ -13,17 +17,27 @@ const HILL_HOLD_TIME = 45; // Increased from 30 to 45 seconds
 const TERRAIN_WATER = 2;
 const TERRAIN_FOREST = 1;
 
+// Notification sound (base64-encoded WAV file for a simple "ding" sound)
+const notificationSound = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
+
 let team, gameState, offset, selectedPiece = null, isSpectating = false;
 
 document.addEventListener('DOMContentLoaded', () => {
-    let solAddress = prompt('Enter your SOLANA address:');
-    if (solAddress && solAddress.trim() !== '') {
-        socket.emit('join', solAddress);
-        socket.emit('getBalance');
-    } else {
-        alert('A valid Solana address is required to play.');
-        window.location.reload();
+    // Check if SOL address is stored in localStorage
+    let solAddress = localStorage.getItem('solAddress');
+    if (!solAddress) {
+        solAddress = prompt('Enter your SOLANA address:');
+        if (solAddress && solAddress.trim() !== '') {
+            localStorage.setItem('solAddress', solAddress);
+        } else {
+            alert('A valid Solana address is required to play.');
+            window.location.reload();
+            return;
+        }
     }
+
+    socket.emit('join', solAddress);
+    socket.emit('getBalance');
 });
 
 socket.on('waiting', (message) => {
@@ -98,17 +112,54 @@ socket.on('gameOver', (state) => {
             : `You lost by ${state.winReason}.`;
     console.log('Game over:', state);
     if (!isSpectating) {
-        setTimeout(() => {
-            let solAddress = prompt('Enter your SOLANA address to play again:');
-            if (solAddress && solAddress.trim() !== '') {
-                socket.emit('join', solAddress);
-                socket.emit('getBalance');
-            } else {
-                alert('A valid Solana address is required to play.');
-                window.location.reload();
-            }
-        }, 3000);
+        // Show prompt with "Exit" or "Go to Queue" options
+        const promptDiv = document.createElement('div');
+        promptDiv.className = 'game-over-prompt';
+        promptDiv.innerHTML = `
+            <p>Game Over! What would you like to do?</p>
+            <button id="exitButton">Exit</button>
+            <button id="queueButton">Go to Queue</button>
+        `;
+        document.body.appendChild(promptDiv);
+
+        document.getElementById('exitButton').addEventListener('click', () => {
+            socket.disconnect();
+            window.location.reload(); // Or redirect to a homepage if you have one
+        });
+
+        document.getElementById('queueButton').addEventListener('click', () => {
+            const solAddress = localStorage.getItem('solAddress');
+            socket.emit('joinQueue', solAddress);
+            promptDiv.remove();
+        });
     }
+});
+
+socket.on('gameOffer', (timeout) => {
+    // Play notification sound
+    notificationSound.play().catch(err => console.error('Error playing sound:', err));
+
+    // Show notification with countdown
+    notificationDiv.style.display = 'block';
+    notificationMessage.textContent = 'You have been selected to play! Accept within:';
+    countdownSpan.textContent = timeout;
+    acceptButton.disabled = false;
+
+    let timeLeft = timeout;
+    const countdownInterval = setInterval(() => {
+        timeLeft--;
+        countdownSpan.textContent = timeLeft;
+        if (timeLeft <= 0) {
+            clearInterval(countdownInterval);
+            notificationDiv.style.display = 'none';
+        }
+    }, 1000);
+
+    acceptButton.onclick = () => {
+        clearInterval(countdownInterval);
+        notificationDiv.style.display = 'none';
+        socket.emit('acceptGame');
+    };
 });
 
 socket.on('serverBalance', (balance) => {
