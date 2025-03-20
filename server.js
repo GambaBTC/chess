@@ -11,6 +11,8 @@ const INACTIVITY_TIMEOUT = 90;
 const GAME_OFFER_TIMEOUT = 15;
 const MOVE_DURATION = 0.2;
 const SHRINE_DELETE_CHANCE = 0.20;
+const MIN_MOVES_FOR_PAYOUT = 10; // Minimum moves required for payout
+const GAME_TIME_LIMIT = 600 * 1000; // 10 minutes in milliseconds
 const TERRAIN_GRASS = 0, TERRAIN_FOREST = 1, TERRAIN_WATER = 2;
 
 const connection = new Connection('https://api.mainnet-beta.solana.com');
@@ -313,6 +315,8 @@ class Game {
         this.interval = null;
         this.player1LastMoveTime = Date.now();
         this.player2LastMoveTime = Date.now();
+        this.moveCount = 0; // Track total moves in the game
+        this.gameStartTime = Date.now(); // Track when the game started
     }
 
     generateBoard() {
@@ -449,6 +453,7 @@ class Game {
 
         const player1TimeLeft = INACTIVITY_TIMEOUT * 1000 - (currentTime - this.player1LastMoveTime);
         const player2TimeLeft = INACTIVITY_TIMEOUT * 1000 - (currentTime - this.player2LastMoveTime);
+        const gameTimeElapsed = currentTime - this.gameStartTime;
 
         if (player1TimeLeft <= 0 && player2TimeLeft <= 0) {
             this.endGame(null, "dual_inactivity");
@@ -464,9 +469,19 @@ class Game {
             return;
         }
 
+        // Check if 10 minutes have passed
+        if (gameTimeElapsed >= GAME_TIME_LIMIT) {
+            const team0Pieces = this.pieces.filter(p => p.team === 0).length;
+            const team1Pieces = this.pieces.filter(p => p.team === 1).length;
+            const winner = team0Pieces > team1Pieces ? 0 : team1Pieces > team0Pieces ? 1 : null;
+            this.endGame(winner, "time_limit_reached");
+            return;
+        }
+
         const delta = this.getDeltaState();
         delta.player1Timer = player1TimeLeft / 1000;
         delta.player2Timer = player2TimeLeft / 1000;
+        delta.gameTimeRemaining = (GAME_TIME_LIMIT - gameTimeElapsed) / 1000; // Send remaining time in seconds
         this.player1.socket.emit('update', delta);
         this.player2.socket.emit('update', delta);
         spectators.forEach(spectator => {
@@ -519,14 +534,23 @@ class Game {
             this.player2LastMoveTime = Date.now();
         }
         
+        this.moveCount++; // Increment move count for each valid move
+        console.log(`Move count increased to: ${this.moveCount}`);
+
         if (shrineIdx !== -1) {
             this.shrines.splice(shrineIdx, 1);
-            if (Math.random() < SHRINE_DELETE_CHANCE) {
+            const randomChance = Math.random();
+            console.log(`Shrine hit by ${piece.type} at (${targetX}, ${targetY}), randomChance: ${randomChance}`);
+            if (randomChance < SHRINE_DELETE_CHANCE) {
+                console.log(`Piece ${piece.type} at (${targetX}, ${targetY}) deleted by shrine (20% chance)`);
                 this.pieces.splice(pieceIdx, 1);
             } else {
                 const newX = targetX + 1;
                 if (newX < BOARD_SIZE && !this.pieces.find(p => p.x === newX && p.y === targetY)) {
+                    console.log(`Piece ${piece.type} duplicated to (${newX}, ${targetY}) by shrine (80% chance)`);
                     this.pieces.push(new Piece(team, piece.type, newX, targetY));
+                } else {
+                    console.log(`No space to duplicate ${piece.type} at (${newX}, ${targetY})`);
                 }
             }
         }
@@ -546,17 +570,22 @@ class Game {
         state.gameOver = true;
         state.winner = winnerTeam;
         state.winReason = reason;
-        console.log(`Game ended: ${winnerTeam !== null ? `Team ${winnerTeam} won by ${reason}` : `No winner due to ${reason}`}`);
+        console.log(`Game ended: ${winnerTeam !== null ? `Team ${winnerTeam} won by ${reason}` : `No winner due to ${reason}`}, Moves: ${this.moveCount}`);
 
         if (winnerTeam !== null) {
             const winner = winnerTeam === 0 ? this.player1 : this.player2;
             const loser = winnerTeam === 0 ? this.player2 : this.player1;
             const rand = Math.random();
-            let prize;
-            if (rand < 0.6) prize = 0.001;
-            else if (rand < 0.9) prize = 0.005;
-            else prize = 0.01;
-            state.prize = prize;
+            let prize = 0; // Default to no prize
+            if (this.moveCount >= MIN_MOVES_FOR_PAYOUT) {
+                if (rand < 0.6) prize = 0.001;
+                else if (rand < 0.9) prize = 0.005;
+                else prize = 0.01;
+                state.prize = prize;
+            } else {
+                console.log(`Not enough moves (${this.moveCount} < ${MIN_MOVES_FOR_PAYOUT}) for payout`);
+                state.prize = 0; // Explicitly set to 0 if move count is insufficient
+            }
 
             winner.socket.emit('gameOver', state);
             loser.socket.emit('gameOver', state);
@@ -564,11 +593,15 @@ class Game {
                 spectator.emit('gameOver', state);
             });
 
-            try {
-                const txId = await sendSol(winner.solAddress, prize);
-                console.log(`Prize of ${prize} SOL sent to ${winner.solAddress}: ${txId}`);
-            } catch (err) {
-                console.error('SOLANA transaction failed:', err);
+            if (prize > 0) {
+                try {
+                    const txId = await sendSol(winner.solAddress, prize);
+                    console.log(`Prize of ${prize} SOL sent to ${winner.solAddress}: ${txId}`);
+                } catch (err) {
+                    console.error('SOLANA transaction failed:', err);
+                }
+            } else {
+                console.log(`No SOL prize awarded to ${winner.solAddress} due to insufficient moves`);
             }
         } else {
             this.player1.socket.emit('gameOver', state);
@@ -590,8 +623,9 @@ class Game {
     }
 
     getFullState() {
+        const currentTime = Date.now();
         return {
-            serverTime: Date.now(),
+            serverTime: currentTime,
             board: this.board,
             pieces: this.pieces.map(p => ({
                 team: p.team,
@@ -605,19 +639,21 @@ class Game {
             })),
             hill: this.hill,
             hillOccupant: this.hillOccupant,
-            hillTimer: this.hillStartTime ? (Date.now() - this.hillStartTime) / 1000 : 0,
+            hillTimer: this.hillStartTime ? (currentTime - this.hillStartTime) / 1000 : 0,
             shrines: this.shrines,
             gameOver: false,
             winner: null,
             winReason: null,
-            player1Timer: INACTIVITY_TIMEOUT - (Date.now() - this.player1LastMoveTime) / 1000,
-            player2Timer: INACTIVITY_TIMEOUT - (Date.now() - this.player2LastMoveTime) / 1000
+            player1Timer: INACTIVITY_TIMEOUT - (currentTime - this.player1LastMoveTime) / 1000,
+            player2Timer: INACTIVITY_TIMEOUT - (currentTime - this.player2LastMoveTime) / 1000,
+            gameTimeRemaining: (GAME_TIME_LIMIT - (currentTime - this.gameStartTime)) / 1000
         };
     }
 
     getDeltaState() {
+        const currentTime = Date.now();
         return {
-            serverTime: Date.now(),
+            serverTime: currentTime,
             pieces: this.pieces.map(p => ({
                 team: p.team,
                 type: p.type,
@@ -626,9 +662,10 @@ class Game {
                 cooldown: p.cooldown
             })),
             hillOccupant: this.hillOccupant,
-            hillTimer: this.hillStartTime ? (Date.now() - this.hillStartTime) / 1000 : 0,
-            player1Timer: INACTIVITY_TIMEOUT - (Date.now() - this.player1LastMoveTime) / 1000,
-            player2Timer: INACTIVITY_TIMEOUT - (Date.now() - this.player2LastMoveTime) / 1000
+            hillTimer: this.hillStartTime ? (currentTime - this.hillStartTime) / 1000 : 0,
+            player1Timer: INACTIVITY_TIMEOUT - (currentTime - this.player1LastMoveTime) / 1000,
+            player2Timer: INACTIVITY_TIMEOUT - (currentTime - this.player2LastMoveTime) / 1000,
+            gameTimeRemaining: (GAME_TIME_LIMIT - (currentTime - this.gameStartTime)) / 1000
         };
     }
 }
