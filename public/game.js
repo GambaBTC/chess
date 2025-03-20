@@ -280,4 +280,11 @@ canvas.addEventListener('click', (e) => {
     }
 });
 
+ctx.polygon = function(points) {
+    this.beginPath();
+    this.moveTo(points[0][0], points[0][1]);
+    for (let i = 1; i < points.length; i++) this.lineTo(points[i][0], points[i][1]);
+    this.closePath();
+};
+
 requestAnimationFrame(render);
