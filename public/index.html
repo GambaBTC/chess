@@ -1,46 +1,48 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Chess Game</title>
-    <style>
-        body {
-            display: flex;
-            align-items: flex-start;
-            margin: 10px;
-            font-family: Arial, sans-serif;
-        }
-        canvas {
-            border: 1px solid black;
-        }
-        #infoPanel {
-            margin-left: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-        #hillBar {
-            width: 200px;
-            height: 20px;
-            border: 1px solid black;
-        }
-        #hillProgress {
-            height: 100%;
-            background: #fff;
-            transition: width 0.1s linear;
-        }
-        #status, #balanceDisplay, #queueDisplay, #timerDisplay {
-            font-size: 16px;
-        }
-    </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chess Conquest</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <canvas id="gameCanvas" width="700" height="700"></canvas>
-    <div id="infoPanel">
-        <div id="hillBar"></div>
-        <div id="status">Waiting...</div>
-        <div id="balanceDisplay">Server SOL: Loading...</div>
-        <div id="queueDisplay">Players in queue: 0</div>
-        <div id="timerDisplay">Team 0: 90s | Team 1: 90s</div>
+    <div class="container">
+        <div class="instructions">
+            <h2>How to Play Chess Conquest</h2>
+            <p>Welcome to Chess Conquest, a strategic game where you compete to either capture the opponent's king or conquer the central hill!</p>
+            <ul>
+                <li><strong>Objective:</strong> Win by capturing the opponent's king or holding the central hill (yellow square) for 45 seconds.</li>
+                <li><strong>Moving Pieces:</strong> Click a piece to select it (green highlight), then click a highlighted square to move. You can deselect by clicking the piece again.</li>
+                <li><strong>Piece Movement:</strong>
+                    <ul>
+                        <li><strong>Pawn:</strong> Moves 1 square in any direction (up, down, left, right) or diagonally to capture.</li>
+                        <li><strong>Knight:</strong> Moves in an L-shape (2 squares in one direction, 1 square perpendicular).</li>
+                        <li><strong>Bishop:</strong> Moves diagonally up to 5 squares.</li>
+                        <li><strong>Rook:</strong> Moves horizontally or vertically up to 5 squares.</li>
+                        <li><strong>Queen:</strong> Moves in any direction (horizontal, vertical, diagonal) up to 5 squares.</li>
+                        <li><strong>King:</strong> Moves 1 square in any direction.</li>
+                    </ul>
+                </li>
+                <li><strong>Cooldowns:</strong> After moving, pieces have a cooldown: 5 seconds on grass (light green), 10 seconds on forest (dark green). You cannot move a piece until its cooldown ends (red overlay fades).</li>
+                <li><strong>Hill Conquest:</strong> Move a piece onto the central hill (yellow square) and hold it for 45 seconds to win. The hill timer is displayed on the hill and in the progress bar.</li>
+                <li><strong>Inactivity Timeout:</strong> You must move a piece within 90 seconds, or you lose the game. Timers for each team are displayed (e.g., "Team 0: 90s | Team 1: 90s").</li>
+                <li><strong>Queue System:</strong> Only one game can be active at a time. If a game is ongoing, you’ll be placed in a queue. The queue size is displayed (e.g., "Players in queue: 0").</li>
+                <li><strong>Spectator Mode:</strong> If you’re in the queue, you can spectate the current game but cannot interact.</li>
+                <li><strong>Shrines:</strong> Gray squares are shrines. Moving onto a shrine has a 20% chance to delete the piece and an 80% chance to duplicate it to the right (if space is available).</li>
+                <li><strong>Winning:</strong> Win by capturing the opponent’s king or holding the hill for 45 seconds. The winner receives 0.005 SOL!</li>
+            </ul>
+        </div>
+        <div class="game-area">
+            <canvas id="gameCanvas" width="700" height="700"></canvas>
+            <div id="infoPanel">
+                <div id="hillBar"></div>
+                <div id="status">Waiting...</div>
+                <div id="balanceDisplay">Server SOL: Loading...</div>
+                <div id="queueDisplay">Players in queue: 0</div>
+                <div id="timerDisplay">Team 0: 90s | Team 1: 90s</div>
+            </div>
+        </div>
     </div>
     <script src="/socket.io/socket.io.js"></script>
     <script src="game.js"></script>
