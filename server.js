@@ -2,68 +2,99 @@ const express = require('express');
 const app = express();
 const server = require('http').createServer(app);
 const io = require('socket.io')(server);
-const { Connection, Keypair, Transaction, SystemProgram, sendAndConfirmTransaction, PublicKey } = require('@solana/web3.js');
+const { Connection, Keypair, Transaction, SystemProgram, sendAndConfirmTransaction, PublicKey, LAMPORTS_PER_SOL } = require('@solana/web3.js');
 
-// Constants
 const BOARD_SIZE = 35;
-const HILL_HOLD_TIME = 30; // seconds
-const SOLANA_PRIZE = 0.01; // SOL
-const MOVE_DURATION = 0.2; // seconds
-const SHRINE_DELETE_CHANCE = 0.20;
-const TERRAIN_GRASS = 0;
-const TERRAIN_FOREST = 1;
-const TERRAIN_WATER = 2;
+const HILL_HOLD_TIME = 30;
+const SOLANA_PRIZE = 0.005; // Reduced payout to 0.005 SOL
+const MOVE_DURATION = 0.2;
+const SHRINE_DELETE_CHANCE = 0.20; // 1/5 chance to delete piece
+const TERRAIN_GRASS = 0, TERRAIN_FOREST = 1, TERRAIN_WATER = 2;
+
+// Connect to Solana Mainnet
+const connection = new Connection('https://api.mainnet-beta.solana.com');
+const serverKeypair = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(process.env.SOLANA_PRIVATE_KEY || '[]')));
 
 app.use(express.static('public'));
 
 const playerPool = [];
 const games = [];
-const connection = new Connection('https://api.devnet.solana.com');
-const serverKeypair = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(process.env.SOLANA_PRIVATE_KEY || '[]')));
 
-// Piece class with standard chess movement
+// Function to fetch server wallet balance
+async function getServerBalance() {
+    try {
+        const balance = await connection.getBalance(serverKeypair.publicKey);
+        return balance / LAMPORTS_PER_SOL; // Convert lamports to SOL
+    } catch (error) {
+        console.error('Error fetching balance:', error);
+        return 0;
+    }
+}
+
+io.on('connection', (socket) => {
+    console.log('Player connected:', socket.id);
+    socket.on('join', (solAddress) => {
+        if (!solAddress) return socket.disconnect();
+        console.log(`Player ${socket.id} joined with SOL address: ${solAddress}`);
+        playerPool.push({ socket, solAddress });
+        socket.emit('waiting', 'Waiting for an opponent...');
+        if (playerPool.length >= 2) {
+            const player1 = playerPool.shift();
+            const player2 = playerPool.shift();
+            console.log('Starting game between', player1.socket.id, 'and', player2.socket.id);
+            const game = new Game(player1, player2);
+            games.push(game);
+            game.start();
+        }
+    });
+
+    socket.on('move', (data) => {
+        const game = games.find(g => g.player1.socket.id === socket.id || g.player2.socket.id === socket.id);
+        if (game) game.handleMove(socket.id, data);
+    });
+
+    socket.on('disconnect', () => {
+        console.log('Player disconnected:', socket.id);
+        const gameIdx = games.findIndex(g => g.player1.socket.id === socket.id || g.player2.socket.id === socket.id);
+        if (gameIdx !== -1) {
+            const game = games[gameIdx];
+            game.endGame(game.player1.socket.id === socket.id ? 1 : 0, "opponent_disconnect");
+            games.splice(gameIdx, 1);
+        }
+    });
+});
+
 class Piece {
     constructor(team, type, x, y) {
-        this.team = team; // 0 (bottom) or 1 (top)
-        this.type = type; // pawn, knight, bishop, rook, queen, king
+        this.team = team;
+        this.type = type;
         this.x = x;
         this.y = y;
         this.old_x = x;
         this.old_y = y;
-        this.cooldown = 0; // milliseconds
+        this.cooldown = 0;
         this.move_start_time = null;
-        this.move_duration = MOVE_DURATION * 1000; // Convert to ms
+        this.move_duration = MOVE_DURATION;
     }
 
     getLegalMoves(grid, pieces) {
         const moves = {
-            pawn: () => this.getPawnMoves(grid, pieces),
-            knight: () => this.getKnightMoves(grid, pieces),
-            bishop: () => this.getSlidingMoves(grid, pieces, [[-1, -1], [-1, 1], [1, -1], [1, 1]], 5),
-            rook: () => this.getSlidingMoves(grid, pieces, [[-1, 0], [1, 0], [0, -1], [0, 1]], 5),
-            queen: () => this.getSlidingMoves(grid, pieces, [[-1, -1], [-1, 1], [1, -1], [1, 1], [-1, 0], [1, 0], [0, -1], [0, 1]], 7),
-            king: () => this.getKingMoves(grid, pieces)
+            "pawn": this.getPawnMoves,
+            "knight": this.getKnightMoves,
+            "bishop": () => this.getSlidingMoves(grid, pieces, [[-1, -1], [-1, 1], [1, -1], [1, 1]], 5),
+            "rook": () => this.getSlidingMoves(grid, pieces, [[-1, 0], [1, 0], [0, -1], [0, 1]], 5),
+            "queen": () => this.getSlidingMoves(grid, pieces, [[-1, -1], [-1, 1], [1, -1], [1, 1], [-1, 0], [1, 0], [0, -1], [0, 1]], 7),
+            "king": this.getKingMoves
         };
-        return moves[this.type]();
+        return moves[this.type](grid, pieces);
     }
 
     getPawnMoves(grid, pieces) {
         const moves = [];
-        const direction = this.team === 0 ? -1 : 1; // Team 0 moves up, Team 1 moves down
-        const forwardY = this.y + direction;
-
-        // Forward move (only if empty and not water)
-        if (forwardY >= 0 && forwardY < BOARD_SIZE && grid[this.x][forwardY] !== TERRAIN_WATER && !pieces[this.x]?.[forwardY]) {
-            moves.push([this.x, forwardY]);
-        }
-
-        // Diagonal captures
-        const captureDirs = [[-1, direction], [1, direction]];
-        for (const [dx, dy] of captureDirs) {
-            const nx = this.x + dx;
-            const ny = this.y + dy;
-            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE &&
-                pieces[nx]?.[ny] && pieces[nx][ny].team !== this.team) {
+        const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]]; // Omnidirectional movement
+        for (const [dx, dy] of directions) {
+            const nx = this.x + dx, ny = this.y + dy;
+            if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER && !pieces[nx]?.[ny]) {
                 moves.push([nx, ny]);
             }
         }
@@ -74,8 +105,7 @@ class Piece {
         const moves = [];
         const knightMoves = [[-2, -1], [-2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2], [2, -1], [2, 1]];
         for (const [dx, dy] of knightMoves) {
-            const nx = this.x + dx;
-            const ny = this.y + dy;
+            const nx = this.x + dx, ny = this.y + dy;
             if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER &&
                 (!pieces[nx]?.[ny] || pieces[nx][ny].team !== this.team)) {
                 moves.push([nx, ny]);
@@ -88,8 +118,7 @@ class Piece {
         const moves = [];
         for (const [dx, dy] of directions) {
             for (let i = 1; i <= maxRange; i++) {
-                const nx = this.x + dx * i;
-                const ny = this.y + dy * i;
+                const nx = this.x + dx * i, ny = this.y + dy * i;
                 if (nx < 0 || nx >= BOARD_SIZE || ny < 0 || ny >= BOARD_SIZE || grid[nx][ny] === TERRAIN_WATER) break;
                 if (pieces[nx]?.[ny]) {
                     if (pieces[nx][ny].team !== this.team) moves.push([nx, ny]);
@@ -105,8 +134,7 @@ class Piece {
         const moves = [];
         const kingMoves = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
         for (const [dx, dy] of kingMoves) {
-            const nx = this.x + dx;
-            const ny = this.y + dy;
+            const nx = this.x + dx, ny = this.y + dy;
             if (nx >= 0 && nx < BOARD_SIZE && ny >= 0 && ny < BOARD_SIZE && grid[nx][ny] !== TERRAIN_WATER &&
                 (!pieces[nx]?.[ny] || pieces[nx][ny].team !== this.team)) {
                 moves.push([nx, ny]);
@@ -116,10 +144,9 @@ class Piece {
     }
 }
 
-// Game class with corrected piece placement
 class Game {
     constructor(player1, player2) {
-        this.player1 = player1; // { socket, solAddress }
+        this.player1 = player1;
         this.player2 = player2;
         this.board = this.generateBoard();
         this.pieces = this.placePieces();
@@ -128,34 +155,40 @@ class Game {
         this.hillStartTime = null;
         this.shrines = this.placeShrines();
         this.interval = null;
+        this.serverBalance = 0; // Initialize balance
+    }
+
+    async start() {
+        this.serverBalance = await getServerBalance(); // Fetch balance on game start
+        const state = this.getState();
+        this.player1.socket.emit('gameStart', { team: 0, state, serverBalance: this.serverBalance });
+        this.player2.socket.emit('gameStart', { team: 1, state, serverBalance: this.serverBalance });
+        this.interval = setInterval(() => this.update(), 1000 / 60);
     }
 
     generateBoard() {
         const board = Array(BOARD_SIZE).fill().map(() => Array(BOARD_SIZE).fill(TERRAIN_GRASS));
         const totalCells = BOARD_SIZE * BOARD_SIZE;
-        const waterCells = Math.floor(totalCells * 0.1); // 10% water
-        const forestCells = Math.floor(totalCells * 0.1); // 10% forest
+        const waterCells = Math.floor(totalCells * 0.1);
+        const forestCells = Math.floor(totalCells * 0.1);
 
-        // Clear spawn areas
         for (let x = 13; x <= 20; x++) {
             board[x][0] = TERRAIN_GRASS; board[x][1] = TERRAIN_GRASS; // Team 1: rows 0-1
             board[x][33] = TERRAIN_GRASS; board[x][34] = TERRAIN_GRASS; // Team 0: rows 33-34
         }
 
-        // Place water
         let placedWater = 0;
         while (placedWater < waterCells) {
             const x = Math.floor(Math.random() * BOARD_SIZE);
             const y = Math.floor(Math.random() * BOARD_SIZE);
             if (board[x][y] === TERRAIN_GRASS && 
-                !(x >= 13 && x <= 20 && (y <= 1 || y >= 33)) && // Avoid spawn areas
-                (x !== 17 || y !== 17)) { // Avoid hill
+                !(x >= 13 && x <= 20 && (y <= 1 || y >= 33)) && 
+                (x !== 17 || y !== 17)) {
                 board[x][y] = TERRAIN_WATER;
                 placedWater++;
             }
         }
 
-        // Place forest
         let placedForest = 0;
         while (placedForest < forestCells) {
             const x = Math.floor(Math.random() * BOARD_SIZE);
@@ -184,14 +217,13 @@ class Game {
             }
         };
 
-        // Corrected placement
         placeTeam(0, 13, 33, 34); // Team 0: pawns on 33, pieces on 34
         placeTeam(1, 13, 1, 0);   // Team 1: pawns on 1, pieces on 0
         return pieces;
     }
 
     placeShrines() {
-        const shrineCount = Math.floor(BOARD_SIZE * BOARD_SIZE * 0.01); // ~12 shrines
+        const shrineCount = Math.floor(BOARD_SIZE * BOARD_SIZE * 0.01);
         const shrines = [];
         const possiblePositions = [];
 
@@ -212,14 +244,6 @@ class Game {
 
         console.log('Shrines placed at:', shrines);
         return shrines;
-    }
-
-    start() {
-        const state = this.getState();
-        this.player1.socket.emit('gameStart', { team: 0, state });
-        this.player2.socket.emit('gameStart', { team: 1, state });
-        console.log(`Game started for players ${this.player1.socket.id} and ${this.player2.socket.id}`);
-        this.interval = setInterval(() => this.update(), 1000 / 60); // 60 FPS
     }
 
     update() {
@@ -279,7 +303,7 @@ class Game {
         piece.old_x = piece.x; piece.old_y = piece.y;
         piece.x = targetX; piece.y = targetY;
         piece.move_start_time = Date.now();
-        piece.cooldown = (this.board[targetX][targetY] === TERRAIN_FOREST ? 2 : 1) * 1500; // ms
+        piece.cooldown = (this.board[targetX][targetY] === TERRAIN_FOREST ? 2 : 1) * 1500;
         this.pieces[targetX][targetY] = piece;
 
         if (shrineIdx !== -1) {
@@ -297,7 +321,7 @@ class Game {
         this.update();
     }
 
-    endGame(winnerTeam, reason) {
+    async endGame(winnerTeam, reason) {
         clearInterval(this.interval);
         const winner = winnerTeam === 0 ? this.player1 : this.player2;
         const loser = winnerTeam === 0 ? this.player2 : this.player1;
@@ -309,9 +333,15 @@ class Game {
         winner.socket.emit('gameOver', state);
         loser.socket.emit('gameOver', state);
 
-        sendSol(winner.solAddress, SOLANA_PRIZE)
-            .then(txId => console.log(`Prize sent to ${winner.solAddress}: ${txId}`))
-            .catch(err => console.error('SOLANA transaction failed:', err));
+        try {
+            const txId = await sendSol(winner.solAddress, SOLANA_PRIZE);
+            console.log(`Prize sent to ${winner.solAddress}: ${txId}`);
+            this.serverBalance = await getServerBalance(); // Update balance after transaction
+            winner.socket.emit('serverBalanceUpdate', this.serverBalance);
+            loser.socket.emit('serverBalanceUpdate', this.serverBalance);
+        } catch (err) {
+            console.error('SOLANA transaction failed:', err);
+        }
         games.splice(games.indexOf(this), 1);
     }
 
@@ -341,46 +371,13 @@ class Game {
     }
 }
 
-// Socket.IO setup
-io.on('connection', (socket) => {
-    console.log('Player connected:', socket.id);
-    socket.on('join', (solAddress) => {
-        if (!solAddress) return socket.disconnect();
-        console.log(`Player ${socket.id} joined with SOL address: ${solAddress}`);
-        playerPool.push({ socket, solAddress });
-        socket.emit('waiting', 'Waiting for an opponent...');
-        if (playerPool.length >= 2) {
-            const player1 = playerPool.shift();
-            const player2 = playerPool.shift();
-            const game = new Game(player1, player2);
-            games.push(game);
-            game.start();
-        }
-    });
-
-    socket.on('move', (data) => {
-        const game = games.find(g => g.player1.socket.id === socket.id || g.player2.socket.id === socket.id);
-        if (game) game.handleMove(socket.id, data);
-    });
-
-    socket.on('disconnect', () => {
-        console.log('Player disconnected:', socket.id);
-        const gameIdx = games.findIndex(g => g.player1.socket.id === socket.id || g.player2.socket.id === socket.id);
-        if (gameIdx !== -1) {
-            const game = games[gameIdx];
-            game.endGame(game.player1.socket.id === socket.id ? 1 : 0, "opponent_disconnect");
-            games.splice(gameIdx, 1);
-        }
-    });
-});
-
 async function sendSol(toAddress, amount) {
     const toPubkey = new PublicKey(toAddress);
     const transaction = new Transaction().add(
         SystemProgram.transfer({
             fromPubkey: serverKeypair.publicKey,
             toPubkey: toPubkey,
-            lamports: amount * 1e9 // Convert SOL to lamports
+            lamports: amount * LAMPORTS_PER_SOL // Convert SOL to lamports
         })
     );
     const signature = await sendAndConfirmTransaction(connection, transaction, [serverKeypair]);
