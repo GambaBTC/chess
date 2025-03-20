@@ -11,14 +11,13 @@ const HILL_HOLD_TIME = 30;
 const TERRAIN_WATER = 2;
 const TERRAIN_FOREST = 1;
 
-let team, gameState, offset, selectedPiece = null;
+let team, gameState, offset, selectedPiece = null, needsRender = false;
 
-// Prompt for Solana address after DOM is fully loaded
 document.addEventListener('DOMContentLoaded', () => {
     let solAddress = prompt('Enter your SOLANA address:');
     if (solAddress && solAddress.trim() !== '') {
         socket.emit('join', solAddress);
-        socket.emit('getBalance'); // Request server balance on load
+        socket.emit('getBalance');
     } else {
         alert('A valid Solana address is required to play.');
         window.location.reload();
@@ -45,20 +44,33 @@ socket.on('gameStart', (data) => {
     offset = Date.now() - data.state.serverTime;
     statusDiv.textContent = `Playing as Team ${team}`;
     console.log('Game state initialized:', gameState);
+    needsRender = true;
     render();
 });
 
-socket.on('update', (state) => {
-    console.log('Update received:', state);
-    gameState = state;
-    offset = Date.now() - state.serverTime;
-    render(); // Ensure render is called on every update
+socket.on('update', (deltaState) => {
+    console.log('Update received:', deltaState);
+    offset = Date.now() - deltaState.serverTime;
+    deltaState.pieces.forEach(dp => {
+        const idx = gameState.pieces.findIndex(p => p.team === dp.team && p.type === dp.type && p.old_x === dp.old_x && p.old_y === dp.old_y);
+        if (idx !== -1) {
+            gameState.pieces[idx] = dp;
+        } else {
+            gameState.pieces.push(dp);
+        }
+    });
+    gameState.pieces = gameState.pieces.filter(p => p.cooldown > 0 || gameState.pieces.some(dp => dp.x === p.x && dp.y === p.y));
+    gameState.hillOccupant = deltaState.hillOccupant;
+    gameState.hillTimer = deltaState.hillTimer;
+    gameState.shrines = deltaState.shrines;
+    needsRender = true;
 });
 
 socket.on('gameOver', (state) => {
     gameState = state;
     statusDiv.textContent = state.winner === team ? `You won by ${state.winReason}! 0.005 SOL sent.` : `You lost by ${state.winReason}.`;
     console.log('Game over:', state);
+    needsRender = true;
     setTimeout(() => {
         let solAddress = prompt('Enter your SOLANA address to play again:');
         if (solAddress && solAddress.trim() !== '') {
@@ -157,9 +169,11 @@ function render() {
         return;
     }
 
+    if (!needsRender) return;
+    needsRender = false;
+
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw board
     for (let x = 0; x < BOARD_SIZE; x++) {
         for (let y = 0; y < BOARD_SIZE; y++) {
             ctx.fillStyle = gameState.board[x][y] === TERRAIN_WATER ? '#00f' : gameState.board[x][y] === TERRAIN_FOREST ? '#060' : '#0a0';
@@ -167,25 +181,22 @@ function render() {
         }
     }
 
-    // Draw hill
     ctx.fillStyle = '#ff0';
     ctx.fillRect(gameState.hill.x * CELL_SIZE, gameState.hill.y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
     if (gameState.hillOccupant !== null) {
         hillBar.innerHTML = `<div id="hillProgress" style="width: ${gameState.hillTimer / HILL_HOLD_TIME * 100}%; background: ${gameState.hillOccupant === 0 ? '#fff' : '#f00'}"></div>`;
         ctx.fillStyle = '#fff';
         ctx.font = '12px Arial';
-        ctx.fillText(`${gameState.hillTimer.toFixed(1)}/${HILL_HOLD_TIME}s`, gameState.hill.x * CELL_SIZE + 2, gameисаState.hill.y * CELL_SIZE + 12);
+        ctx.fillText(`${gameState.hillTimer.toFixed(1)}/${HILL_HOLD_TIME}s`, gameState.hill.x * CELL_SIZE + 2, gameState.hill.y * CELL_SIZE + 12);
     } else {
         hillBar.innerHTML = '';
     }
 
-    // Draw shrines
     gameState.shrines.forEach(s => {
         ctx.fillStyle = '#ccc';
         ctx.fillRect(s[0] * CELL_SIZE, s[1] * CELL_SIZE, CELL_SIZE, CELL_SIZE);
     });
 
-    // Draw pieces and legal moves
     gameState.pieces.forEach((p, i) => {
         drawPiece(p, i === selectedPiece);
         if (i === selectedPiece) {
@@ -266,11 +277,14 @@ canvas.addEventListener('click', (e) => {
     if (pieceIdx !== -1 && selectedPiece === null) {
         selectedPiece = pieceIdx;
         console.log('Piece selected:', gameState.pieces[pieceIdx]);
+        needsRender = true;
     } else if (selectedPiece !== null) {
         socket.emit('move', { pieceIdx: selectedPiece, targetX: x, targetY: y });
         console.log('Move sent:', { pieceIdx: selectedPiece, targetX: x, targetY: y });
         selectedPiece = null;
+        needsRender = true;
     }
+    render();
 });
 
 ctx.polygon = function(points) {
