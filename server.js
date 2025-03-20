@@ -6,7 +6,7 @@ const { Connection, Keypair, Transaction, SystemProgram, sendAndConfirmTransacti
 
 // Constants
 const BOARD_SIZE = 35;
-const HILL_HOLD_TIME = 30; // seconds
+const HILL_HOLD_TIME = 45; // Increased from 30 to 45 seconds
 const SOLANA_PRIZE = 0.005; // SOL
 const MOVE_DURATION = 0.2; // seconds
 const SHRINE_DELETE_CHANCE = 0.20;
@@ -264,7 +264,7 @@ class Game {
                 if (this.board[x][y] === TERRAIN_GRASS 
                     && !(x >= 12 && x <= 21 && y <= 2) 
                     && !(x >= 12 && x <= 21 && y >= 32) 
-                    && !(x === 17 && y === 17)) {
+                    && !(x === 17 || y === 17)) {
                     possiblePositions.push([x, y]);
                 }
             }
@@ -358,7 +358,7 @@ class Game {
         piece.old_x = piece.x; piece.old_y = piece.y;
         piece.x = targetX; piece.y = targetY;
         piece.move_start_time = Date.now();
-        piece.cooldown = (this.board[targetX][targetY] === TERRAIN_FOREST ? 6 : 3) * 1000; // Increased cooldown: 3s on grass, 6s on forest
+        piece.cooldown = (this.board[targetX][targetY] === TERRAIN_FOREST ? 10 : 5) * 1000; // Increased cooldown: 5s on grass, 10s on forest
         
         if (shrineIdx !== -1) {
             this.shrines.splice(shrineIdx, 1);
@@ -426,13 +426,13 @@ class Game {
     getDeltaState() {
         return {
             serverTime: Date.now(),
-            pieces: this.pieces.filter(p => p.cooldown > 0).map(p => ({
+            pieces: this.pieces.map(p => ({
                 team: p.team,
                 type: p.type,
                 x: p.x,
                 y: p.y,
                 cooldown: p.cooldown
-            })),
+            })), // Include all pieces, not just those with cooldown > 0
             hillOccupant: this.hillOccupant,
             hillTimer: this.hillStartTime ? (Date.now() - this.hillStartTime) / 1000 : 0
         };
