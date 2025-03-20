@@ -3,8 +3,7 @@ const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const statusDiv = document.getElementById('status');
 const hillBar = document.getElementById('hillBar');
-const balanceDiv = document.createElement('div'); // Add balance display
-document.body.appendChild(balanceDiv);
+const balanceDisplay = document.getElementById('balanceDisplay');
 const CELL_SIZE = canvas.width / 35;
 const MOVE_DURATION = 0.2;
 const BOARD_SIZE = 35;
@@ -19,8 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let solAddress = prompt('Enter your SOLANA address:');
     if (solAddress && solAddress.trim() !== '') {
         socket.emit('join', solAddress);
-        // Request server balance
-        socket.emit('getBalance');
+        socket.emit('getBalance'); // Request server balance on load
     } else {
         alert('A valid Solana address is required to play.');
         window.location.reload();
@@ -54,7 +52,7 @@ socket.on('update', (state) => {
     console.log('Update received:', state);
     gameState = state;
     offset = Date.now() - state.serverTime;
-    render(); // Ensure render is called on update
+    render(); // Ensure render is called on every update
 });
 
 socket.on('gameOver', (state) => {
@@ -74,7 +72,7 @@ socket.on('gameOver', (state) => {
 });
 
 socket.on('serverBalance', (balance) => {
-    balanceDiv.textContent = `Server SOL Balance: ${balance.toFixed(4)} SOL`;
+    balanceDisplay.textContent = `Server SOL: ${typeof balance === 'string' ? balance : balance.toFixed(4)} SOL`;
 });
 
 function drawPiece(piece, selected = false) {
@@ -152,7 +150,6 @@ function drawPiece(piece, selected = false) {
 }
 
 function render() {
-    console.log('Render called, gameState:', gameState);
     if (!gameState) {
         console.error('No gameState to render');
         ctx.fillStyle = 'red';
@@ -163,7 +160,6 @@ function render() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // Draw board
-    console.log('Drawing board');
     for (let x = 0; x < BOARD_SIZE; x++) {
         for (let y = 0; y < BOARD_SIZE; y++) {
             ctx.fillStyle = gameState.board[x][y] === TERRAIN_WATER ? '#00f' : gameState.board[x][y] === TERRAIN_FOREST ? '#060' : '#0a0';
@@ -172,32 +168,28 @@ function render() {
     }
 
     // Draw hill
-    console.log('Drawing hill');
     ctx.fillStyle = '#ff0';
     ctx.fillRect(gameState.hill.x * CELL_SIZE, gameState.hill.y * CELL_SIZE, CELL_SIZE, CELL_SIZE);
     if (gameState.hillOccupant !== null) {
         hillBar.innerHTML = `<div id="hillProgress" style="width: ${gameState.hillTimer / HILL_HOLD_TIME * 100}%; background: ${gameState.hillOccupant === 0 ? '#fff' : '#f00'}"></div>`;
         ctx.fillStyle = '#fff';
         ctx.font = '12px Arial';
-        ctx.fillText(`${gameState.hillTimer.toFixed(1)}/${HILL_HOLD_TIME}s`, gameState.hill.x * CELL_SIZE + 2, gameState.hill.y * CELL_SIZE + 12);
+        ctx.fillText(`${gameState.hillTimer.toFixed(1)}/${HILL_HOLD_TIME}s`, gameState.hill.x * CELL_SIZE + 2, gameисаState.hill.y * CELL_SIZE + 12);
     } else {
         hillBar.innerHTML = '';
     }
 
     // Draw shrines
-    console.log('Drawing shrines:', gameState.shrines);
     gameState.shrines.forEach(s => {
         ctx.fillStyle = '#ccc';
         ctx.fillRect(s[0] * CELL_SIZE, s[1] * CELL_SIZE, CELL_SIZE, CELL_SIZE);
     });
 
     // Draw pieces and legal moves
-    console.log('Drawing pieces:', gameState.pieces);
     gameState.pieces.forEach((p, i) => {
         drawPiece(p, i === selectedPiece);
         if (i === selectedPiece) {
             const legalMoves = calculateLegalMoves(p);
-            console.log('Legal moves for selected piece:', legalMoves);
             ctx.fillStyle = 'rgba(255, 255, 0, 0.5)';
             legalMoves.forEach(([mx, my]) => ctx.fillRect(mx * CELL_SIZE, my * CELL_SIZE, CELL_SIZE, CELL_SIZE));
         }
@@ -205,8 +197,6 @@ function render() {
 
     if (!gameState.gameOver) {
         requestAnimationFrame(render);
-    } else {
-        console.log('Game over, stopping render loop');
     }
 }
 
