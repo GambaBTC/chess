@@ -317,7 +317,8 @@ class Game {
             changed = true;
         }
 
-        if (changed) {
+        // Always send an update if a piece is on the hill to keep the timer updating
+        if (this.hillOccupant !== null || changed) {
             const delta = this.getDeltaState();
             this.player1.socket.emit('update', delta);
             this.player2.socket.emit('update', delta);
@@ -357,7 +358,7 @@ class Game {
         piece.old_x = piece.x; piece.old_y = piece.y;
         piece.x = targetX; piece.y = targetY;
         piece.move_start_time = Date.now();
-        piece.cooldown = (this.board[targetX][targetY] === TERRAIN_FOREST ? 2 : 1) * 1500;
+        piece.cooldown = (this.board[targetX][targetY] === TERRAIN_FOREST ? 6 : 3) * 1000; // Increased cooldown: 3s on grass, 6s on forest
         
         if (shrineIdx !== -1) {
             this.shrines.splice(shrineIdx, 1);
