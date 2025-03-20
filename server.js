@@ -80,6 +80,13 @@ class Piece {
         this.cooldown = 0;
         this.move_start_time = null;
         this.move_duration = MOVE_DURATION;
+
+        // Bind methods to ensure `this` always refers to the Piece instance
+        this.getLegalMoves = this.getLegalMoves.bind(this);
+        this.getPawnMoves = this.getPawnMoves.bind(this);
+        this.getKnightMoves = this.getKnightMoves.bind(this);
+        this.getSlidingMoves = this.getSlidingMoves.bind(this);
+        this.getKingMoves = this.getKingMoves.bind(this);
     }
 
     getLegalMoves(board, pieces) {
@@ -87,9 +94,9 @@ class Piece {
         const moves = {
             "pawn": this.getPawnMoves,
             "knight": this.getKnightMoves,
-            "bishop": () => this.getSlidingMoves(board, pieces, [[-1, -1], [-1, 1], [1, -1], [1, 1]], 5),
-            "rook": () => this.getSlidingMoves(board, pieces, [[-1, 0], [1, 0], [0, -1], [0, 1]], 5),
-            "queen": () => this.getSlidingMoves(board, pieces, [[-1, -1], [-1, 1], [1, -1], [1, 1], [-1, 0], [1, 0], [0, -1], [0, 1]], 7),
+            "bishop": this.getSlidingMoves.bind(this, board, pieces, [[-1, -1], [-1, 1], [1, -1], [1, 1]], 5),
+            "rook": this.getSlidingMoves.bind(this, board, pieces, [[-1, 0], [1, 0], [0, -1], [0, 1]], 5),
+            "queen": this.getSlidingMoves.bind(this, board, pieces, [[-1, -1], [-1, 1], [1, -1], [1, 1], [-1, 0], [1, 0], [0, -1], [0, 1]], 7),
             "king": this.getKingMoves
         };
         return moves[this.type](board, pieces);
