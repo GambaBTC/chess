@@ -6,7 +6,8 @@ const { Connection, Keypair, Transaction, SystemProgram, sendAndConfirmTransacti
 
 // Constants
 const BOARD_SIZE = 35;
-const HILL_HOLD_TIME = 45; // Increased from 30 to 45 seconds
+const HILL_HOLD_TIME = 45; // seconds
+const INACTIVITY_TIMEOUT = 90; // seconds (90 seconds for inactivity timeout)
 const SOLANA_PRIZE = 0.005; // SOL
 const MOVE_DURATION = 0.2; // seconds
 const SHRINE_DELETE_CHANCE = 0.20;
@@ -23,38 +24,77 @@ console.log('Server Public Key:', serverKeypair.publicKey.toBase58());
 
 app.use(express.static('public'));
 
-const playerPool = [];
-const games = [];
+const playerPool = []; // Queue of players waiting to play
+let currentGame = null; // Track the current active game
+const spectators = []; // List of spectators
 
 io.on('connection', (socket) => {
-    console.log('Player connected:', socket.id);
+    console.log('Client connected:', socket.id);
+
     socket.on('join', (solAddress) => {
         if (!solAddress) return socket.disconnect();
         console.log(`Player ${socket.id} joined with SOL address: ${solAddress}`);
-        playerPool.push({ socket, solAddress });
-        socket.emit('waiting', 'Waiting for an opponent...');
-        if (playerPool.length >= 2) {
-            const player1 = playerPool.shift();
-            const player2 = playerPool.shift();
-            console.log('Starting game between', player1.socket.id, 'and', player2.socket.id);
-            const game = new Game(player1, player2);
-            games.push(game);
-            game.start();
+
+        // If a game is already active, add the player to the queue
+        if (currentGame) {
+            playerPool.push({ socket, solAddress });
+            socket.emit('waiting', `Waiting for an opponent... You are in the queue (${playerPool.length} players waiting)`);
+            // Add to spectators so they can watch the current game
+            spectators.push(socket);
+            socket.emit('spectate', currentGame.getFullState());
+            // Broadcast updated queue size to all clients
+            io.emit('queueUpdate', playerPool.length);
+        } else {
+            // No active game, add to player pool and try to start a game
+            playerPool.push({ socket, solAddress });
+            socket.emit('waiting', `Waiting for an opponent... You are in the queue (${playerPool.length} players waiting)`);
+            io.emit('queueUpdate', playerPool.length);
+
+            // If there are at least 2 players in the pool, start a game
+            if (playerPool.length >= 2 && !currentGame) {
+                const player1 = playerPool.shift();
+                const player2 = playerPool.shift();
+                console.log('Starting game between', player1.socket.id, 'and', player2.socket.id);
+                currentGame = new Game(player1, player2);
+                currentGame.start();
+                // Broadcast updated queue size
+                io.emit('queueUpdate', playerPool.length);
+            }
         }
     });
 
     socket.on('move', (data) => {
-        const game = games.find(g => g.player1.socket.id === socket.id || g.player2.socket.id === socket.id);
-        if (game) game.handleMove(socket.id, data);
+        if (currentGame) {
+            currentGame.handleMove(socket.id, data);
+        }
     });
 
     socket.on('disconnect', () => {
-        console.log('Player disconnected:', socket.id);
-        const gameIdx = games.findIndex(g => g.player1.socket.id === socket.id || g.player2.socket.id === socket.id);
-        if (gameIdx !== -1) {
-            const game = games[gameIdx];
-            game.endGame(game.player1.socket.id === socket.id ? 1 : 0, "opponent_disconnect");
-            games.splice(gameIdx, 1);
+        console.log('Client disconnected:', socket.id);
+        // Remove from player pool if they were in the queue
+        const playerIdx = playerPool.findIndex(p => p.socket.id === socket.id);
+        if (playerIdx !== -1) {
+            playerPool.splice(playerIdx, 1);
+            io.emit('queueUpdate', playerPool.length);
+        }
+        // Remove from spectators
+        const spectatorIdx = spectators.findIndex(s => s.id === socket.id);
+        if (spectatorIdx !== -1) {
+            spectators.splice(spectatorIdx, 1);
+        }
+        // If the player was in the current game, end the game
+        if (currentGame && (currentGame.player1.socket.id === socket.id || currentGame.player2.socket.id === socket.id)) {
+            currentGame.endGame(currentGame.player1.socket.id === socket.id ? 1 : 0, "opponent_disconnect");
+            currentGame = null;
+            // Start a new game if there are enough players in the queue
+            if (playerPool.length >= 2) {
+                const player1 = playerPool.shift();
+                const player2 = playerPool.shift();
+                console.log('Starting new game between', player1.socket.id, 'and', player2.socket.id);
+                currentGame = new Game(player1, player2);
+                currentGame.start();
+            }
+            io.emit('queueUpdate', playerPool.length);
         }
     });
 
@@ -96,7 +136,7 @@ class Piece {
             "knight": this.getKnightMoves,
             "bishop": this.getSlidingMoves.bind(this, board, pieces, [[-1, -1], [-1, 1], [1, -1], [1, 1]], 5),
             "rook": this.getSlidingMoves.bind(this, board, pieces, [[-1, 0], [1, 0], [0, -1], [0, 1]], 5),
-            "queen": this.getSlidingMoves.bind(this, board, pieces, [[-1, -1], [-1, 1], [1, -1], [1, 1], [-1, 0], [1, 0], [0, -1], [0, 1]], 7),
+            "queen": this.getSlidingMoves.bind(this, board, pieces, [[-1, -1], [-1, 1], [1, -1], [1, 1], [-1, 0], [1, 0], [0, -1], [0, 1]], 5), // Reduced range from 7 to 5
             "king": this.getKingMoves
         };
         return moves[this.type](board, pieces);
@@ -186,6 +226,9 @@ class Game {
         this.hillStartTime = null;
         this.shrines = this.placeShrines();
         this.interval = null;
+        // Inactivity timers for each player
+        this.player1LastMoveTime = Date.now();
+        this.player2LastMoveTime = Date.now();
     }
 
     generateBoard() {
@@ -283,6 +326,10 @@ class Game {
         const state = this.getFullState();
         this.player1.socket.emit('gameStart', { team: 0, state });
         this.player2.socket.emit('gameStart', { team: 1, state });
+        // Send the initial game state to all spectators
+        spectators.forEach(spectator => {
+            spectator.emit('spectate', state);
+        });
         console.log(`Game started for players ${this.player1.socket.id} and ${this.player2.socket.id}`);
         this.interval = setInterval(() => this.update(), 100); // 10 FPS for lightweight updates
     }
@@ -317,11 +364,30 @@ class Game {
             changed = true;
         }
 
-        // Always send an update if a piece is on the hill to keep the timer updating
+        // Check inactivity timers for both players
+        const player1TimeLeft = INACTIVITY_TIMEOUT * 1000 - (currentTime - this.player1LastMoveTime);
+        const player2TimeLeft = INACTIVITY_TIMEOUT * 1000 - (currentTime - this.player2LastMoveTime);
+
+        if (player1TimeLeft <= 0) {
+            this.endGame(1, "inactivity_timeout"); // Player 1 (Team 0) loses
+            return;
+        }
+        if (player2TimeLeft <= 0) {
+            this.endGame(0, "inactivity_timeout"); // Player 2 (Team 1) loses
+            return;
+        }
+
+        // Always send an update if a piece is on the hill to keep the timer updating, or if cooldowns changed
         if (this.hillOccupant !== null || changed) {
             const delta = this.getDeltaState();
+            delta.player1Timer = player1TimeLeft / 1000; // Convert to seconds
+            delta.player2Timer = player2TimeLeft / 1000; // Convert to seconds
             this.player1.socket.emit('update', delta);
             this.player2.socket.emit('update', delta);
+            // Send delta updates to all spectators
+            spectators.forEach(spectator => {
+                spectator.emit('update', delta);
+            });
         }
     }
 
@@ -359,6 +425,13 @@ class Game {
         piece.x = targetX; piece.y = targetY;
         piece.move_start_time = Date.now();
         piece.cooldown = (this.board[targetX][targetY] === TERRAIN_FOREST ? 10 : 5) * 1000; // Increased cooldown: 5s on grass, 10s on forest
+
+        // Reset the inactivity timer for the player who made the move
+        if (team === 0) {
+            this.player1LastMoveTime = Date.now();
+        } else {
+            this.player2LastMoveTime = Date.now();
+        }
         
         if (shrineIdx !== -1) {
             this.shrines.splice(shrineIdx, 1);
@@ -376,6 +449,10 @@ class Game {
         const state = this.getFullState();
         this.player1.socket.emit('update', state);
         this.player2.socket.emit('update', state);
+        // Send the updated state to all spectators
+        spectators.forEach(spectator => {
+            spectator.emit('update', state);
+        });
     }
 
     async endGame(winnerTeam, reason) {
@@ -389,6 +466,10 @@ class Game {
         console.log(`Game ended: Team ${winnerTeam} won by ${reason}`);
         winner.socket.emit('gameOver', state);
         loser.socket.emit('gameOver', state);
+        // Send game over state to all spectators
+        spectators.forEach(spectator => {
+            spectator.emit('gameOver', state);
+        });
 
         try {
             const txId = await sendSol(winner.solAddress, SOLANA_PRIZE);
@@ -396,7 +477,21 @@ class Game {
         } catch (err) {
             console.error('SOLANA transaction failed:', err);
         }
-        games.splice(games.indexOf(this), 1);
+
+        // Clear the current game
+        currentGame = null;
+
+        // Start a new game if there are enough players in the queue
+        if (playerPool.length >= 2) {
+            const player1 = playerPool.shift();
+            const player2 = playerPool.shift();
+            console.log('Starting new game between', player1.socket.id, 'and', player2.socket.id);
+            currentGame = new Game(player1, player2);
+            currentGame.start();
+        }
+
+        // Broadcast updated queue size
+        io.emit('queueUpdate', playerPool.length);
     }
 
     getFullState() {
@@ -419,7 +514,9 @@ class Game {
             shrines: this.shrines,
             gameOver: false,
             winner: null,
-            winReason: null
+            winReason: null,
+            player1Timer: INACTIVITY_TIMEOUT - (Date.now() - this.player1LastMoveTime) / 1000,
+            player2Timer: INACTIVITY_TIMEOUT - (Date.now() - this.player2LastMoveTime) / 1000
         };
     }
 
@@ -434,7 +531,9 @@ class Game {
                 cooldown: p.cooldown
             })), // Include all pieces, not just those with cooldown > 0
             hillOccupant: this.hillOccupant,
-            hillTimer: this.hillStartTime ? (Date.now() - this.hillStartTime) / 1000 : 0
+            hillTimer: this.hillStartTime ? (Date.now() - this.hillStartTime) / 1000 : 0,
+            player1Timer: INACTIVITY_TIMEOUT - (Date.now() - this.player1LastMoveTime) / 1000,
+            player2Timer: INACTIVITY_TIMEOUT - (Date.now() - this.player2LastMoveTime) / 1000
         };
     }
 }
