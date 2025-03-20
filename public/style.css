@@ -235,8 +235,8 @@ canvas {
     border-radius: 5px;
     padding: 10px;
     text-align: center;
-    width: 250px; /* Match #infoPanel width */
-    height: 150px; /* Approximate height of green square */
+    width: 250px;
+    height: 150px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -250,6 +250,18 @@ canvas {
 }
 
 /* Responsive Design */
+@media (max-width: 1200px) {
+    .game-area {
+        flex-direction: row;
+        align-items: flex-start;
+    }
+
+    #infoPanel, #adBanner {
+        margin-left: 20px;
+        margin-top: 0;
+    }
+}
+
 @media (max-width: 1000px) {
     .game-area {
         flex-direction: column;
