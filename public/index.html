@@ -43,6 +43,11 @@
                 <li><strong>Winning:</strong> Win by capturing the opponent’s king or holding the hill for 45 seconds. The winner receives 0.005 SOL!</li>
             </ul>
         </div>
+        <div id="notification" style="display: none;">
+            <p id="notificationMessage"></p>
+            <p>Time left: <span id="countdown"></span> seconds</p>
+            <button id="acceptButton">Accept</button>
+        </div>
     </div>
     <script src="/socket.io/socket.io.js"></script>
     <script src="game.js"></script>
