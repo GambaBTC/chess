@@ -11,7 +11,7 @@ const HILL_HOLD_TIME = 30;
 const TERRAIN_WATER = 2;
 const TERRAIN_FOREST = 1;
 
-let team, gameState, offset, selectedPiece = null, lastRenderTime = 0;
+let team, gameState, offset, selectedPiece = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     let solAddress = prompt('Enter your SOLANA address:');
@@ -49,8 +49,18 @@ socket.on('gameStart', (data) => {
 
 socket.on('update', (state) => {
     console.log('Update received:', state);
-    gameState = state;
-    offset = Date.now() - state.serverTime;
+    if (state.board) {
+        gameState = state; // Full state update
+    } else {
+        // Delta update
+        offset = Date.now() - state.serverTime;
+        state.pieces.forEach(dp => {
+            const piece = gameState.pieces.find(p => p.x === dp.x && p.y === dp.y && p.team === dp.team && p.type === dp.type);
+            if (piece) piece.cooldown = dp.cooldown;
+        });
+        gameState.hillOccupant = state.hillOccupant;
+        gameState.hillTimer = state.hillTimer;
+    }
 });
 
 socket.on('gameOver', (state) => {
@@ -142,21 +152,21 @@ function drawPiece(piece, selected = false) {
         ctx.strokeRect(rectX, rectY, CELL_SIZE, CELL_SIZE);
     }
     if (piece.cooldown > 0) {
-        ctx.fillStyle = `rgba(255, 0, 0, ${piece.cooldown / 3000})`;
+        const elapsed = currentTime - (piece.move_start_time || currentTime);
+        const maxCooldown = (piece.type === 'pawn' && gameState.board[piece.x][piece.y] === TERRAIN_FOREST) ? 3000 : 1500;
+        const opacity = Math.max(0, piece.cooldown / maxCooldown);
+        ctx.fillStyle = `rgba(255, 0, 0, ${opacity})`;
         ctx.fillRect(rectX, rectY, CELL_SIZE, CELL_SIZE);
     }
 }
 
-function render(timestamp) {
+function render() {
     if (!gameState) {
         console.error('No gameState to render');
         ctx.fillStyle = 'red';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         return;
     }
-
-    const deltaTime = (timestamp - lastRenderTime) / 1000;
-    lastRenderTime = timestamp;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
