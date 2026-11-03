@@ -154,6 +154,34 @@ the keys with a separate tool that uses the OS random source.
 - Recipients need a wallet that can sweep mini keys (Electrum can; many wallets can't). Uncompressed legacy addresses
   also cost a little more in fees to redeem.
 
+## Are coins that already exist at risk?
+
+**Genuine Casascius coins.** Casascius's [Statement of Controls](https://www.casascius.com/controls.aspx) says the
+keys were made on a dedicated offline machine by a separate program. It used Microsoft's .NET secure random
+generator (`System.Security.Cryptography`, the OS source) plus a keyboard "mash" of at least 50 characters. That is
+not the BouncyCastle path in problem 2, so that finding doesn't apply to them as described. This rests on the
+maker's own statement, which this review can't verify.
+
+[Two-factor coins](https://www.casascius.com/2factor/) also need the buyer's own passphrase, so even the maker
+can't spend them. No public reports of Casascius coin keys being cracked turned up.
+
+**Coins made with this tool.** The risk depends on how the keys were made:
+
+| How the keys were made | Risk |
+| --- | --- |
+| Bulk mini keys or random keys | Theoretical: the weak seeding in problem 2, shared across a batch. No attack shown. |
+| Two-factor / BIP38 EC-multiply, with the owner's passphrase | Low: the key also depends on the owner's scrypt-hardened passphrase, so a weak random generator alone doesn't expose it. Only as strong as that passphrase. |
+| "Encrypted" mode with a pasted intermediate code | **Real** (problem 1): anyone who has seen the intermediate code can decrypt the keys. |
+| Wallet generator, deterministic mode, or main-window SHA256 → key with a human-chosen phrase | **Real** if the phrase is guessable (problem 3). |
+| Any coin made by someone else without two-factor | The maker saw the key and could have kept a copy. Usually a bigger practical risk than the generator. |
+
+**Checking and reducing the risk:**
+- Looking up a coin's address on a block explorer is safe and shows whether the funds are still there.
+- The only way to remove the risk entirely is to peel the coin and move the funds to a new wallet. That destroys
+  the coin as a collectible, and unpeeled coins often sell for more than the bitcoin inside. Worth it for homemade
+  coins holding real value, or for the two "Real" rows above. Not worth it for genuine Casascius coins over this
+  finding.
+
 ## Recommendations
 
 If you use it at all:
