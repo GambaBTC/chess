@@ -6,6 +6,7 @@
 #   ./build-and-test.sh vectors    official BIP38 / address test vectors only
 #   ./build-and-test.sh bugs       bug reproductions only
 #   ./build-and-test.sh mofn       M-of-N decode-order test only
+#   ./build-and-test.sh minibatch [N]  generate N (default 5000) mini keys like the bulk generator -> build/minikeys.csv
 #   ./build-and-test.sh rng        BouncyCastle 1.7 random-seed check
 #
 # Needs: mono-mcs, mono-runtime, curl, unzip (Debian/Ubuntu: apt-get install mono-mcs mono-runtime curl unzip)
@@ -50,5 +51,5 @@ elif [ "$WHAT" = "all" ]; then
   mono Harness.exe all
   mono Rng.exe
 else
-  mono Harness.exe "$WHAT"
+  mono Harness.exe "$@"
 fi

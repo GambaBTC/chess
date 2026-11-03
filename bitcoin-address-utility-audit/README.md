@@ -19,6 +19,7 @@ generator in the 2013 version of its crypto library.
 | `analysis/mofn_leak.py` | How much of the key M-1 shares of the M-of-N scheme reveal |
 | `analysis/mofn_decode.py` | Python port of the M-of-N decoder, including C# 64-bit overflow |
 | `analysis/mofn_order_test.py` | Tries every share order through that port (`python3 mofn_order_test.py mofn_decode.py`) |
+| `analysis/verify_minikeys.py` | Independent checker for a list of mini keys and addresses: run it before funding coins |
 
 To rerun everything: `./build-and-test.sh` (needs `mono-mcs mono-runtime curl unzip`). The build makes two
 non-functional edits to copies of the sources so they compile on Mono: it removes an unused `using System.Drawing;`
@@ -115,6 +116,43 @@ The app itself warns that this feature is experimental.
 - Debug builds print M-of-N secret parts to debug output (`Model/MofN.cs:147`).
 - The code has been unmaintained since February 2013, makes only legacy `1…` addresses, and needs Windows with
   .NET Framework.
+
+## Bulk mini key generation (for physical coins)
+
+The "Mini keys" option in the address generator (`Forms/AddressGen.cs:199`) calls `MiniKeyPair.CreateRandom` once
+per key.
+
+**Correct:**
+- 30-character `S…` keys with the standard typo check (SHA256(key + "?") starts with 0x00).
+- The private key is SHA256(key), with an uncompressed legacy address.
+- About 160 bits of key space per key, which is plenty.
+- `./build-and-test.sh minibatch` generated 5,000 keys with the real code: all valid, no duplicates, and no
+  character bias in any position.
+- `analysis/verify_minikeys.py`, a separate implementation, re-derived every address and they all matched. The Bitcoin
+  wiki's example key also checks out.
+
+**Not safe as-is:** the randomness. Each key is SHA256 of a timestamp, the app's mouse-movement string and 64
+characters from BouncyCastle 1.7's `SecureRandom` (`Model/MiniKeyPair.cs:93`). During a bulk run, the generator
+dialog collects no mouse movement, and the main window only collects it over its menu bar
+(`Forms/KeyCollectionView.cs:333`). So apart from `SecureRandom`, each key gets only a fresh timestamp.
+
+All keys in a run come from one generator state, seeded once per program start from the clock and thread timing
+(problem 2). If that seed were ever guessable, every coin in the batch would fall together. The funded addresses are
+public, so an attacker can check guesses offline. No attack was demonstrated, but coins are long-lived, public and
+made in batches, which is exactly the case to rule out. Fix `Model/MiniKeyPair.cs:93` as in problem 2, or generate
+the keys with a separate tool that uses the OS random source.
+
+**Before funding coins:**
+- Generate and print on an offline computer, with the printer on USB rather than the network. Print jobs and any
+  saved key list are copies of the keys.
+- Export the list ("Save private keys" writes `minikey address` lines) and run
+  `python3 analysis/verify_minikeys.py keys.txt`. It confirms each key controls the address listed next to it and
+  flags typos and duplicates. Then delete the file.
+- The coin-insert layout prints the key in 4.5 pt text inside a 7/16" circle (`Reports/CoinInsert.cs:94-114`).
+  Make a test print and type a few keys back into the verifier, because confusable characters (`C`/`c`, `K`/`k`,
+  `Z`/`2`, `S`/`5`) can slip past the 1-in-256 typo check.
+- Recipients need a wallet that can sweep mini keys (Electrum can; many wallets can't). Uncompressed legacy addresses
+  also cost a little more in fees to redeem.
 
 ## Recommendations
 

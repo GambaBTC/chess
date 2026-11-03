@@ -172,6 +172,29 @@ class Harness {
         }
         }
 
+        if (only == "minibatch") {
+        // Same call the bulk generator makes (Forms/AddressGen.cs, GenChoices.Minikey), repeated.
+        // Writes minikeys.csv (minikey,address) for analysis/verify_minikeys.py to check independently.
+        int count = args.Length > 1 ? int.Parse(args[1]) : 5000;
+        Console.WriteLine("== Bulk mini key generation: " + count + " keys ==");
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var seen = new HashSet<string>();
+        int invalid = 0, dupes = 0;
+        using (var w = new System.IO.StreamWriter("minikeys.csv")) {
+            w.WriteLine("minikey,address");
+            for (int i = 0; i < count; i++) {
+                MiniKeyPair mkp = MiniKeyPair.CreateRandom(ExtraEntropy.GetEntropy());
+                string addr = mkp.AddressBase58;
+                if (MiniKeyPair.IsValidMiniKey(mkp.MiniKey) != 1 || mkp.MiniKey.Length != 30) invalid++;
+                if (!seen.Add(mkp.MiniKey)) dupes++;
+                w.WriteLine(mkp.MiniKey + "," + addr);
+            }
+        }
+        Check("all " + count + " keys are valid 30-character mini keys", invalid == 0, invalid + " invalid");
+        Check("no duplicate keys", dupes == 0, dupes + " duplicates");
+        Console.WriteLine(string.Format("    {0:F1} keys/second; wrote minikeys.csv", count / sw.Elapsed.TotalSeconds));
+        }
+
         Console.WriteLine();
         Console.WriteLine("Checks passed: " + pass + ", failed: " + fail + "; bugs reproduced: " + bugs);
     }
