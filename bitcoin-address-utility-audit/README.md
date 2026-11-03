@@ -80,10 +80,11 @@ call site. That class exists in 1.7 and was confirmed to work.
 ### 4. Medium: M-of-N key splitting is homemade and unreliable
 The app itself warns that this feature is experimental.
 - Decoding keeps its coefficients in 64-bit `long`s that overflow (`Model/MofN.cs:446`). Out of 1,200 random entry
-  orders each, using the real code, decoding failed (blank key) 16% of the time for 6-of-8, 38% for 7-of-8 and 56%
-  for 8-of-8. 2- to 5-of-N never failed. Entering parts in order 1, 2, 3… works, so a backup isn't lost, but it can
-  look lost.
-- The window ignores the scheme's 9-bit checksum (`Forms/MofNcalc.cs:121`).
+  orders each, using the real code, decoding failed 16% of the time for 6-of-8, 38% for 7-of-8 and 56% for 8-of-8.
+  2- to 5-of-N never failed. Almost every failure shows a blank key, but in one run 1 of the 196 failed 6-of-8
+  decodes produced a different, wrong key. Entering parts in order 1, 2, 3… works, so a backup isn't lost, but it
+  can look lost or show the wrong key.
+- The window ignores the scheme's 9-bit checksum, so a wrong key is shown with no warning (`Forms/MofNcalc.cs:121`).
 - Shares are sums over plain integers, not over a finite field, so holding one share fewer than needed reveals up to
   about 26 of the 256 key bits (`analysis/mofn_leak.py`). That's not exploitable, but a real threshold scheme reveals
   nothing.
